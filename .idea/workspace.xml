@@ -4,7 +4,9 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="95b727ab-2ef0-4f59-9f02-60f19935d8c1" name="更改" comment="" />
+    <list default="true" id="95b727ab-2ef0-4f59-9f02-60f19935d8c1" name="更改" comment="">
+      <change beforePath="$PROJECT_DIR$/.gitignore" beforeDir="false" afterPath="$PROJECT_DIR$/.gitignore" afterDir="false" />
+    </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -25,6 +27,9 @@
     "accountId": "fa79ae0d-e2bc-4ebd-a5ea-c32ca22b0d4c"
   }
 }]]></component>
+  <component name="MacroExpansionManager">
+    <option name="directoryName" value="GOKUxceq" />
+  </component>
   <component name="ProjectColorInfo"><![CDATA[{
   "associatedIndex": 6
 }]]></component>
@@ -67,7 +72,7 @@
       <option name="number" value="Default" />
       <option name="presentableId" value="Default" />
       <updated>1753690689335</updated>
-      <workItem from="1753690690592" duration="252000" />
+      <workItem from="1753690690592" duration="381000" />
     </task>
     <servers />
   </component>
