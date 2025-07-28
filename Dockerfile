@@ -90,6 +90,12 @@ RUN echo '#!/bin/bash' > /app/entrypoint.sh && \
     echo '    export $(cat .env.example | grep -v "^#" | xargs)' >> /app/entrypoint.sh && \
     echo 'fi' >> /app/entrypoint.sh && \
     echo '' >> /app/entrypoint.sh && \
+    echo '# Override DATABASE_URL with Docker environment variables' >> /app/entrypoint.sh && \
+    echo 'if [ -n "$POSTGRES_PASSWORD" ]; then' >> /app/entrypoint.sh && \
+    echo '    export DATABASE_URL="postgres://$POSTGRES_USER:$POSTGRES_PASSWORD@$POSTGRES_HOST:$POSTGRES_PORT/$POSTGRES_DB"' >> /app/entrypoint.sh && \
+    echo '    echo "Using Docker environment variables for database connection"' >> /app/entrypoint.sh && \
+    echo 'fi' >> /app/entrypoint.sh && \
+    echo '' >> /app/entrypoint.sh && \
     echo '# Migrations will be handled by the application automatically' >> /app/entrypoint.sh && \
     echo '' >> /app/entrypoint.sh && \
     echo '# Start the application' >> /app/entrypoint.sh && \

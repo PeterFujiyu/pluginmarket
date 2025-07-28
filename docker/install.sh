@@ -72,6 +72,69 @@ generate_password() {
     fi
 }
 
+# Test SMTP connection
+test_smtp_connection() {
+    local host="$1"
+    local port="$2"
+    local username="$3"
+    local password="$4"
+    
+    print_status "Testing SMTP connection to $host:$port..."
+    
+    # Use timeout and telnet/nc to test basic connectivity
+    if command -v nc &> /dev/null; then
+        if timeout 10 nc -z "$host" "$port" 2>/dev/null; then
+            print_success "SMTP server is reachable at $host:$port"
+        else
+            print_warning "Cannot connect to SMTP server at $host:$port"
+            print_warning "Please verify the hostname and port are correct"
+            read -p "Continue anyway? [y/N]: " continue_anyway
+            if [[ ! "$continue_anyway" =~ ^[Yy]$ ]]; then
+                print_error "SMTP configuration cancelled"
+                exit 1
+            fi
+        fi
+    else
+        print_warning "Cannot test SMTP connection (nc not available)"
+        print_warning "Please manually verify your SMTP settings are correct"
+    fi
+    
+    # Provide specific guidance for common providers
+    case "$host" in
+        "smtp.gmail.com")
+            print_warning "For Gmail, make sure to:"
+            echo "  1. Enable 2-factor authentication on your Google account"
+            echo "  2. Generate an App Password (not your regular password)"
+            echo "  3. Use the App Password in the SMTP password field"
+            ;;
+        "smtp-mail.outlook.com")
+            print_warning "For Outlook, make sure to:"
+            echo "  1. Use your full email address as username"
+            echo "  2. Use your account password or app password"
+            ;;
+    esac
+}
+
+# Validate email address format
+validate_email() {
+    local email="$1"
+    if [[ "$email" =~ ^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$ ]]; then
+        return 0
+    else
+        return 1
+    fi
+}
+
+# Validate port number
+validate_port() {
+    local port="$1"
+    if [[ "$port" =~ ^[0-9]+$ ]] && [ "$port" -ge 1 ] && [ "$port" -le 65535 ]; then
+        return 0
+    else
+        return 1
+    fi
+}
+
 # Interactive configuration
 interactive_config() {
     print_status "Setting up configuration..."
@@ -110,8 +173,16 @@ interactive_config() {
     read -p "Server host [0.0.0.0]: " server_host
     server_host=${server_host:-0.0.0.0}
     
-    read -p "Server port [3000]: " server_port
-    server_port=${server_port:-3000}
+    # Server port with validation
+    while true; do
+        read -p "Server port [3000]: " server_port
+        server_port=${server_port:-3000}
+        if validate_port "$server_port"; then
+            break
+        else
+            print_error "Please enter a valid port number (1-65535)"
+        fi
+    done
     
     # JWT configuration
     echo ""
@@ -122,21 +193,49 @@ interactive_config() {
         print_status "Generated JWT secret: ${jwt_secret:0:8}..."
     fi
     
-    read -p "JWT access token expires in seconds [3600]: " jwt_access_expires
-    jwt_access_expires=${jwt_access_expires:-3600}
+    # JWT access token expiration with validation
+    while true; do
+        read -p "JWT access token expires in seconds [3600]: " jwt_access_expires
+        jwt_access_expires=${jwt_access_expires:-3600}
+        if [[ "$jwt_access_expires" =~ ^[0-9]+$ ]] && [ "$jwt_access_expires" -gt 0 ]; then
+            break
+        else
+            print_error "Please enter a positive number of seconds"
+        fi
+    done
     
-    read -p "JWT refresh token expires in seconds [604800]: " jwt_refresh_expires
-    jwt_refresh_expires=${jwt_refresh_expires:-604800}
+    # JWT refresh token expiration with validation
+    while true; do
+        read -p "JWT refresh token expires in seconds [604800]: " jwt_refresh_expires
+        jwt_refresh_expires=${jwt_refresh_expires:-604800}
+        if [[ "$jwt_refresh_expires" =~ ^[0-9]+$ ]] && [ "$jwt_refresh_expires" -gt 0 ]; then
+            break
+        else
+            print_error "Please enter a positive number of seconds"
+        fi
+    done
     
     # Storage configuration
     echo ""
     echo -e "${YELLOW}Storage Configuration:${NC}"
-    read -p "Max file size in bytes [104857600]: " max_file_size
-    max_file_size=${max_file_size:-104857600}
+    # Max file size with validation  
+    while true; do
+        read -p "Max file size in bytes [104857600 = 100MB]: " max_file_size
+        max_file_size=${max_file_size:-104857600}
+        if [[ "$max_file_size" =~ ^[0-9]+$ ]] && [ "$max_file_size" -gt 0 ]; then
+            # Convert to MB for display
+            size_mb=$((max_file_size / 1024 / 1024))
+            print_status "Max file size set to ${size_mb}MB"
+            break
+        else
+            print_error "Please enter a positive number of bytes"
+        fi
+    done
     
     # SMTP configuration
     echo ""
     echo -e "${YELLOW}Email Configuration (optional):${NC}"
+    echo "SMTP is used for user email verification. You can skip this and configure it later."
     read -p "Enable SMTP? [y/N]: " enable_smtp
     
     smtp_enabled="false"
@@ -149,15 +248,101 @@ interactive_config() {
     
     if [[ "$enable_smtp" =~ ^[Yy]$ ]]; then
         smtp_enabled="true"
-        read -p "SMTP host: " smtp_host
-        read -p "SMTP port [587]: " smtp_port
-        smtp_port=${smtp_port:-587}
-        read -p "SMTP username: " smtp_username
-        read -s -p "SMTP password: " smtp_password
-        echo ""
-        read -p "From email address: " smtp_from_address
+        
+        # SMTP Host with validation and suggestions
+        while true; do
+            echo ""
+            echo "Common SMTP providers:"
+            echo "  Gmail: smtp.gmail.com"
+            echo "  Outlook: smtp-mail.outlook.com" 
+            echo "  Yahoo: smtp.mail.yahoo.com"
+            echo "  Custom: your-mail-server.com"
+            read -p "SMTP host: " smtp_host
+            if [[ -n "$smtp_host" ]]; then
+                # Fix common typos
+                case "$smtp_host" in
+                    "smtp.gamil.com") 
+                        smtp_host="smtp.gmail.com"
+                        print_warning "Fixed typo: using smtp.gmail.com"
+                        ;;
+                    "gmail.com") 
+                        smtp_host="smtp.gmail.com"
+                        print_status "Using full SMTP hostname: smtp.gmail.com"
+                        ;;
+                    "outlook.com") 
+                        smtp_host="smtp-mail.outlook.com"
+                        print_status "Using full SMTP hostname: smtp-mail.outlook.com"
+                        ;;
+                    "yahoo.com") 
+                        smtp_host="smtp.mail.yahoo.com"
+                        print_status "Using full SMTP hostname: smtp.mail.yahoo.com"
+                        ;;
+                esac
+                break
+            else
+                print_error "SMTP host cannot be empty"
+            fi
+        done
+        
+        # SMTP Port with validation
+        while true; do
+            read -p "SMTP port [587]: " smtp_port
+            smtp_port=${smtp_port:-587}
+            if validate_port "$smtp_port"; then
+                break
+            else
+                print_error "Please enter a valid port number (1-65535)"
+            fi
+        done
+        
+        # SMTP Username with validation
+        while true; do
+            read -p "SMTP username (usually your email): " smtp_username
+            if [[ -n "$smtp_username" ]]; then
+                break
+            else
+                print_error "SMTP username cannot be empty"
+            fi
+        done
+        
+        # SMTP Password with validation
+        while true; do
+            read -s -p "SMTP password (use app password for Gmail): " smtp_password
+            echo ""
+            if [[ -n "$smtp_password" ]]; then
+                read -s -p "Confirm SMTP password: " smtp_password_confirm
+                echo ""
+                if [[ "$smtp_password" == "$smtp_password_confirm" ]]; then
+                    break
+                else
+                    print_error "Passwords do not match. Please try again."
+                fi
+            else
+                print_error "SMTP password cannot be empty"
+            fi
+        done
+        
+        # From email with validation
+        while true; do
+            read -p "From email address [$smtp_username]: " smtp_from_address
+            smtp_from_address=${smtp_from_address:-$smtp_username}
+            if validate_email "$smtp_from_address"; then
+                break
+            else
+                print_error "Please enter a valid email address"
+            fi
+        done
+        
+        # From name
         read -p "From name [GeekTools Plugin Marketplace]: " smtp_from_name
         smtp_from_name=${smtp_from_name:-"GeekTools Plugin Marketplace"}
+        
+        # Test SMTP connection
+        echo ""
+        read -p "Test SMTP connection now? [Y/n]: " test_smtp
+        if [[ ! "$test_smtp" =~ ^[Nn]$ ]]; then
+            test_smtp_connection "$smtp_host" "$smtp_port" "$smtp_username" "$smtp_password"
+        fi
     fi
     
     # Write configuration file
@@ -172,7 +357,7 @@ SERVER_HOST=$server_host
 SERVER_PORT=$server_port
 
 # Database Configuration
-DATABASE_URL=postgres://postgres:$db_password@postgres:5432/marketplace
+# DATABASE_URL is constructed from environment variables in Docker
 DATABASE_MAX_CONNECTIONS=10
 
 # JWT Configuration
@@ -191,7 +376,7 @@ SMTP_ENABLED=$smtp_enabled
 SMTP_HOST=$smtp_host
 SMTP_PORT=$smtp_port
 SMTP_USERNAME=$smtp_username
-SMTP_PASSWORD=$smtp_password
+SMTP_PASSWORD="$smtp_password"
 SMTP_FROM_ADDRESS=$smtp_from_address
 SMTP_FROM_NAME=$smtp_from_name
 
@@ -206,6 +391,9 @@ RUST_BACKTRACE=1
 POSTGRES_PASSWORD=$db_password
 APP_PORT=$server_port
 PROXY_PORT=8080
+
+# Additional environment variables for docker-compose
+POSTGRES_PORT=5432
 EOF
     
     print_success "Configuration file created: $CONFIG_FILE"
@@ -215,11 +403,23 @@ EOF
 create_docker_env() {
     print_status "Creating Docker environment file..."
     
-    # Extract values from config.env
+    # Extract values from config.env  
     if [ -f "$CONFIG_FILE" ]; then
+        # Extract the database password from the Docker environment variables section
         POSTGRES_PASSWORD=$(grep "^POSTGRES_PASSWORD=" "$CONFIG_FILE" | cut -d'=' -f2)
         APP_PORT=$(grep "^APP_PORT=" "$CONFIG_FILE" | cut -d'=' -f2)
         PROXY_PORT=$(grep "^PROXY_PORT=" "$CONFIG_FILE" | cut -d'=' -f2)
+        
+        # If not found in config file, use the db_password variable
+        if [ -z "$POSTGRES_PASSWORD" ]; then
+            POSTGRES_PASSWORD="$db_password"
+        fi
+        if [ -z "$APP_PORT" ]; then
+            APP_PORT="$server_port"
+        fi
+        if [ -z "$PROXY_PORT" ]; then
+            PROXY_PORT="8080"
+        fi
     else
         print_error "Configuration file not found!"
         exit 1

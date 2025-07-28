@@ -244,6 +244,9 @@ docker-compose logs postgres
 # Verify database is ready
 docker-compose exec postgres pg_isready -U postgres
 
+# Quick fix for authentication errors
+./docker/fix-postgres-auth.sh
+
 # Reset database (WARNING: destroys data)
 docker-compose down -v
 docker-compose up -d
@@ -260,6 +263,9 @@ chmod 644 data/config.env
 # Restart application
 docker-compose restart app
 ```
+
+**SMTP/Email issues:**
+See the dedicated [SMTP Troubleshooting Guide](SMTP_TROUBLESHOOTING.md) for detailed solutions to email configuration problems.
 
 **Port conflicts:**
 ```bash
