@@ -1,0 +1,53 @@
+# GeekTools Plugin Marketplace Server Configuration
+# This is the main configuration file for the marketplace server
+
+server:
+  host: "0.0.0.0"
+  port: 3000
+  workers: 4
+
+database:
+  # This will be overridden by DATABASE_URL environment variable
+  url: "postgres://postgres:password@localhost:5432/marketplace"
+  max_connections: 10
+  connect_timeout: 30
+
+jwt:
+  # This will be overridden by JWT_SECRET environment variable
+  secret: "your-secret-key-change-this-in-production"
+  access_token_expires_in: 3600    # 1 hour
+  refresh_token_expires_in: 604800 # 7 days
+
+storage:
+  upload_path: "./uploads"
+  max_file_size: 104857600  # 100MB
+  use_cdn: false
+  cdn_base_url: "https://cdn.geektools.dev"
+
+cors:
+  allowed_origins:
+    - "http://localhost:3000"
+    - "http://localhost:8080"
+    - "http://127.0.0.1:8080"
+  allowed_methods:
+    - "GET"
+    - "POST"
+    - "PUT"
+    - "DELETE"
+    - "OPTIONS"
+  allowed_headers:
+    - "Authorization"
+    - "Content-Type"
+    - "Accept"
+
+# SMTP Configuration (Optional)
+# If not configured here, can be set via environment variables
+smtp:
+  enabled: false  # Set to true to enable email sending
+  host: "smtp.gmail.com"
+  port: 587
+  username: ""  # Your email address
+  password: ""  # Your email password or app-specific password
+  from_address: "noreply@geektools.dev"
+  from_name: "GeekTools Plugin Marketplace"
+  use_tls: true
