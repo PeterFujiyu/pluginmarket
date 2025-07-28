@@ -1,0 +1,71 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: geektools-postgres
+    environment:
+      POSTGRES_DB: marketplace
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-defaultpassword}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./docker/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    networks:
+      - geektools-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d marketplace"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build: .
+    container_name: geektools-app
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-defaultpassword}
+      POSTGRES_DB: marketplace
+      POSTGRES_PORT: 5432
+    volumes:
+      - ./data:/data:ro
+      - app_uploads:/app/uploads
+    ports:
+      - "${APP_PORT:-3000}:3000"
+    networks:
+      - geektools-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  proxy:
+    image: python:3.11-alpine
+    container_name: geektools-proxy
+    working_dir: /app
+    command: python3 proxy_server.py
+    volumes:
+      - ./proxy_server.py:/app/proxy_server.py:ro
+      - .:/app/static:ro
+    ports:
+      - "${PROXY_PORT:-8080}:8080"
+    networks:
+      - geektools-network
+    depends_on:
+      - app
+    restart: unless-stopped
+    environment:
+      BACKEND_URL: http://app:3000
+
+networks:
+  geektools-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+    driver: local
+  app_uploads:
+    driver: local

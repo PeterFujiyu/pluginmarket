@@ -1,0 +1,48 @@
+# Git
+.git
+.gitignore
+
+# Build artifacts
+server/target
+
+# IDE files
+.idea
+.vscode
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Documentation
+*.md
+!server/README.md
+
+# Temporary files
+*.tmp
+*.log
+
+# Data directories
+data/
+uploads/
+
+# Docker files (not needed in context)
+docker/
+Dockerfile
+docker-compose.yml
+.env
+
+# Test files
+test_plugin/
+system_monitor_demo.tar.gz
+server/test-plugin-fixed.tar.gz
+
+# Development files
+debug.html
+test*.html
+proxy-test.html
+upload-test.html
+
+# Node modules (if any)
+node_modules/
