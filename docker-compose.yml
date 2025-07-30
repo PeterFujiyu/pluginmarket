@@ -1,71 +1,80 @@
-version: '3.8'
-
 services:
   postgres:
-    image: postgres:15-alpine
-    container_name: geektools-postgres
+    image: postgres:15
+    container_name: pluginmarket-db
+    env_file:
+      - .env
     environment:
-      POSTGRES_DB: marketplace
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-defaultpassword}
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "${DB_PORT}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./docker/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
-    ports:
-      - "${POSTGRES_PORT:-5432}:5432"
-    networks:
-      - geektools-network
+      - ./server/migrations:/docker-entrypoint-initdb.d
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d marketplace"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 10s
       timeout: 5s
       retries: 5
 
-  app:
-    build: .
-    container_name: geektools-app
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: pluginmarket-backend
+    env_file:
+      - .env
     environment:
-      POSTGRES_HOST: postgres
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-defaultpassword}
-      POSTGRES_DB: marketplace
-      POSTGRES_PORT: 5432
-    volumes:
-      - ./data:/data:ro
-      - app_uploads:/app/uploads
+      DATABASE_URL: "postgres://postgres:Jq0pu6T6LCP0JdIeofDoLA1G1@postgres:5432/marketplace"
+      JWT_SECRET: ${JWT_SECRET}
+      SMTP_ENABLED: ${SMTP_ENABLED}
+      SMTP_HOST: ${SMTP_HOST}
+      SMTP_PORT: ${SMTP_PORT}
+      SMTP_USERNAME: ${SMTP_USERNAME}
+      SMTP_PASSWORD: ${SMTP_PASSWORD}
+      SMTP_FROM_ADDRESS: ${SMTP_FROM_ADDRESS}
+      SMTP_FROM_NAME: ${SMTP_FROM_NAME}
+      SERVER_HOST: "0.0.0.0"
+      SERVER_PORT: "3000"
+      STORAGE_UPLOAD_PATH: "/app/uploads"
+      RUST_LOG: "info"
     ports:
-      - "${APP_PORT:-3000}:3000"
-    networks:
-      - geektools-network
+      - "${API_PORT}:3000"
+    volumes:
+      - ./uploads:/app/uploads:rw
+      - ./server/config:/app/config:ro
     depends_on:
       postgres:
         condition: service_healthy
     restart: unless-stopped
 
   proxy:
-    image: python:3.11-alpine
-    container_name: geektools-proxy
+    image: python:3.11-slim
+    container_name: pluginmarket-proxy
     working_dir: /app
-    command: python3 proxy_server.py
+    command: ["python3", "proxy_server.py"]
+    env_file:
+      - .env
+    environment:
+      BACKEND_URL: ${BACKEND_URL}
+    ports:
+      - "${PROXY_PORT}:8080"
     volumes:
       - ./proxy_server.py:/app/proxy_server.py:ro
-      - .:/app/static:ro
-    ports:
-      - "${PROXY_PORT:-8080}:8080"
-    networks:
-      - geektools-network
+      - ./index.html:/app/index.html:ro
+      - ./admin.html:/app/admin.html:ro
+      - ./admin.js:/app/admin.js:ro
+      - ./test-admin.html:/app/test-admin.html:ro
+      - ./test-frontend.html:/app/test-frontend.html:ro
+      - ./test.html:/app/test.html:ro
+      - ./upload-test.html:/app/upload-test.html:ro
+      - ./proxy-test.html:/app/proxy-test.html:ro
+      - ./uploads:/app/uploads:ro
     depends_on:
-      - app
+      - backend
     restart: unless-stopped
-    environment:
-      BACKEND_URL: http://app:3000
-
-networks:
-  geektools-network:
-    driver: bridge
 
 volumes:
   postgres_data:
-    driver: local
-  app_uploads:
-    driver: local

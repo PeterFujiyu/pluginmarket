@@ -10,7 +10,7 @@ import json
 import os
 
 PORT = 8080
-BACKEND_URL = "http://localhost:3000"
+BACKEND_URL = os.getenv('BACKEND_URL', 'http://localhost:3000')
 
 class ProxyHandler(http.server.SimpleHTTPRequestHandler):
     def do_GET(self):

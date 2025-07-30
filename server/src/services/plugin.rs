@@ -1,7 +1,8 @@
 use flate2::read::GzDecoder;
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Row};
-use std::{collections::HashMap, io::Read, sync::Arc};
+use sqlx::types::{BigDecimal, Decimal};
+use std::{collections::HashMap, io::Read, sync::Arc, str::FromStr};
 use tar::Archive;
 use validator::Validate;
 
@@ -93,7 +94,8 @@ impl PluginService {
         for row in rows {
             // Convert NUMERIC to f64
             let rating: Option<sqlx::types::Decimal> = row.try_get("rating").ok();
-            let rating_f64 = rating.map(|d| d.to_string().parse::<f64>().unwrap_or(0.0)).unwrap_or(0.0);
+            let rating_decimal = rating.map(|d| BigDecimal::from_str(&d.to_string()).unwrap_or_else(|_| BigDecimal::from_str("0.00").unwrap()))
+                .unwrap_or_else(|| BigDecimal::from_str("0.00").unwrap());
             
             plugins.push(PluginSummary {
                 id: row.get("id"),
@@ -102,7 +104,7 @@ impl PluginService {
                 author: row.get("author"),
                 current_version: row.get("current_version"),
                 downloads: row.get("downloads"),
-                rating: rating_f64,
+                rating: rating_decimal,
                 tags: vec![], // Empty for now
                 created_at: row.get("created_at"),
                 updated_at: row.get("updated_at"),
@@ -166,7 +168,8 @@ impl PluginService {
         if let Some(row) = row {
             // Convert NUMERIC to f64
             let rating: Option<sqlx::types::Decimal> = row.try_get("rating").ok();
-            let rating_f64 = rating.map(|d| d.to_string().parse::<f64>().unwrap_or(0.0)).unwrap_or(0.0);
+            let rating_decimal = rating.map(|d| BigDecimal::from_str(&d.to_string()).unwrap_or_else(|_| BigDecimal::from_str("0.00").unwrap()))
+                .unwrap_or_else(|| BigDecimal::from_str("0.00").unwrap());
             
             let current_version: String = row.get("current_version");
             let plugin_id: String = row.get("id");
@@ -183,7 +186,7 @@ impl PluginService {
                 author: row.get("author"),
                 current_version,
                 downloads: row.get("downloads"),
-                rating: rating_f64,
+                rating: rating_decimal,
                 tags,
                 min_geektools_version: row.get("min_geektools_version"),
                 homepage_url: row.get("homepage_url"),
@@ -617,12 +620,13 @@ impl PluginService {
         .fetch_one(&self.db_pool)
         .await?;
 
-        let rating_f64 = avg_rating.map(|d| d.to_string().parse::<f64>().unwrap_or(0.0)).unwrap_or(0.0);
+        let rating_decimal = avg_rating.map(|d| BigDecimal::from_str(&d.to_string()).unwrap_or_else(|_| BigDecimal::from_str("0.00").unwrap()))
+            .unwrap_or_else(|| BigDecimal::from_str("0.00").unwrap());
 
         sqlx::query(
             "UPDATE plugins SET rating = $1, updated_at = NOW() WHERE id = $2"
         )
-        .bind(rating_f64)
+        .bind(rating_decimal)
         .bind(plugin_id)
         .execute(&self.db_pool)
         .await?;

@@ -1,0 +1,40 @@
+FROM rust:latest as builder
+
+WORKDIR /app
+COPY server/Cargo.toml server/Cargo.lock ./
+
+# Build dependencies first for better caching and reduced memory usage
+RUN cargo fetch
+
+COPY server/src ./src
+COPY server/migrations ./migrations
+
+# Build with reduced parallelism to avoid memory issues
+ENV CARGO_BUILD_JOBS=1
+# Temporarily reduce optimization level to save memory during compilation
+RUN sed -i 's/lto = true/lto = false/' Cargo.toml && \
+    sed -i 's/opt-level = 3/opt-level = 2/' Cargo.toml && \
+    cargo build --release
+
+FROM ubuntu:22.04
+
+RUN apt-get update && apt-get install -y \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd -r appuser \
+    && useradd -r -g appuser appuser
+
+WORKDIR /app
+
+COPY --from=builder /app/target/release/server ./
+COPY server/config ./config/
+
+RUN mkdir -p uploads \
+    && chown -R appuser:appuser /app \
+    && chmod -R 755 /app
+
+USER appuser
+
+EXPOSE 3000
+
+CMD ["./server"]

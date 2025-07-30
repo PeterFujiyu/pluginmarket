@@ -56,14 +56,29 @@ impl SmtpService {
         let creds = Credentials::new(self.config.username.clone(), self.config.password.clone());
         
         let transport = if self.config.use_tls {
-            SmtpTransport::starttls_relay(&self.config.host)?
-                .port(self.config.port)
-                .credentials(creds)
-                .build()
+            // For Gmail: port 465 uses direct SSL, port 587 uses STARTTLS
+            if self.config.port == 465 {
+                SmtpTransport::relay(&self.config.host)?
+                    .port(self.config.port)
+                    .credentials(creds)
+                    .timeout(Some(std::time::Duration::from_secs(30)))
+                    .tls(lettre::transport::smtp::client::Tls::Wrapper(
+                        lettre::transport::smtp::client::TlsParameters::new(self.config.host.clone())?
+                    ))
+                    .build()
+            } else {
+                // Use STARTTLS for other ports (like 587) - Gmail recommended
+                SmtpTransport::starttls_relay(&self.config.host)?
+                    .port(self.config.port)
+                    .credentials(creds)
+                    .timeout(Some(std::time::Duration::from_secs(30)))
+                    .build()
+            }
         } else {
             SmtpTransport::relay(&self.config.host)?
                 .port(self.config.port)
                 .credentials(creds)
+                .timeout(Some(std::time::Duration::from_secs(30)))
                 .build()
         };
 

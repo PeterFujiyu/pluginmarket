@@ -1,118 +1,101 @@
-# Multi-stage build for GeekTools Plugin Marketplace  
-FROM rustlang/rust:nightly-slim as builder
+# Multi-stage build for the Rust backend
+FROM rust:1.75 as rust-builder
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
-    pkg-config \
-    libssl-dev \
-    libpq-dev \
-    && rm -rf /var/lib/apt/lists/*
-
-# We'll handle migrations through the application itself
-# No need to install sqlx-cli separately
-
-# Set working directory
-WORKDIR /app
-
-# Copy Cargo files
+WORKDIR /app/server
 COPY server/Cargo.toml server/Cargo.lock ./
-
-# Create a dummy main.rs to cache dependencies
-RUN mkdir src && echo "fn main() {}" > src/main.rs
-
-# Build dependencies (this layer will be cached)
-RUN cargo build --release
-RUN rm -rf src
-
-# Copy source code
 COPY server/src ./src
 COPY server/migrations ./migrations
+COPY server/config ./config
 
-# Build the application
-RUN touch src/main.rs
+# Build the Rust application
 RUN cargo build --release
 
-# Runtime stage
-FROM debian:bookworm-slim
+# Final stage
+FROM ubuntu:22.04
 
-# Install runtime dependencies
+# Install dependencies
 RUN apt-get update && apt-get install -y \
-    libpq5 \
-    libssl3 \
-    ca-certificates \
     python3 \
-    python3-urllib3 \
+    python3-pip \
     postgresql-client \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Create app user
-RUN useradd -r -s /bin/false -m -d /app appuser
+# Install PostgreSQL
+RUN apt-get update && apt-get install -y \
+    postgresql \
+    postgresql-contrib \
+    && rm -rf /var/lib/apt/lists/*
 
-# Set working directory
+# Create app directory
 WORKDIR /app
 
-# Copy binary from builder stage
-COPY --from=builder /app/target/release/server ./server
+# Copy Rust binary
+COPY --from=rust-builder /app/server/target/release/server ./server/
 
-# Copy application files
-COPY --chown=appuser:appuser server/migrations ./migrations
-COPY --chown=appuser:appuser server/config ./config
-COPY --chown=appuser:appuser proxy_server.py ./
-COPY --chown=appuser:appuser *.html *.js ./
+# Copy server config and migrations
+COPY server/config ./server/config/
+COPY server/migrations ./server/migrations/
 
-# Copy default environment file
-COPY server/.env.example ./.env.example
+# Copy Python proxy server
+COPY proxy_server.py ./
 
-# Create directories
-RUN mkdir -p uploads data && \
-    chown -R appuser:appuser uploads data
+# Copy frontend files
+COPY *.html ./
+COPY *.js ./
+COPY app_uploads/ ./app_uploads/
 
-# Create entrypoint script
-RUN echo '#!/bin/bash' > /app/entrypoint.sh && \
-    echo 'set -e' >> /app/entrypoint.sh && \
-    echo '' >> /app/entrypoint.sh && \
-    echo '# Wait for database to be ready' >> /app/entrypoint.sh && \
-    echo 'echo "Waiting for database..."' >> /app/entrypoint.sh && \
-    echo 'until PGPASSWORD="$POSTGRES_PASSWORD" psql -h "$POSTGRES_HOST" -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "\\q" 2>/dev/null; do' >> /app/entrypoint.sh && \
-    echo '  echo "Database is unavailable - sleeping"' >> /app/entrypoint.sh && \
-    echo '  sleep 1' >> /app/entrypoint.sh && \
-    echo 'done' >> /app/entrypoint.sh && \
-    echo '' >> /app/entrypoint.sh && \
-    echo 'echo "Database is up - executing command"' >> /app/entrypoint.sh && \
-    echo '' >> /app/entrypoint.sh && \
-    echo '# Use config file if mounted, otherwise use default' >> /app/entrypoint.sh && \
-    echo 'if [ -f "/data/config.env" ]; then' >> /app/entrypoint.sh && \
-    echo '    echo "Using mounted config file: /data/config.env"' >> /app/entrypoint.sh && \
-    echo '    export $(cat /data/config.env | grep -v "^#" | xargs)' >> /app/entrypoint.sh && \
-    echo 'else' >> /app/entrypoint.sh && \
-    echo '    echo "Using default config file: .env.example"' >> /app/entrypoint.sh && \
-    echo '    export $(cat .env.example | grep -v "^#" | xargs)' >> /app/entrypoint.sh && \
-    echo 'fi' >> /app/entrypoint.sh && \
-    echo '' >> /app/entrypoint.sh && \
-    echo '# Override DATABASE_URL with Docker environment variables' >> /app/entrypoint.sh && \
-    echo 'if [ -n "$POSTGRES_PASSWORD" ]; then' >> /app/entrypoint.sh && \
-    echo '    export DATABASE_URL="postgres://$POSTGRES_USER:$POSTGRES_PASSWORD@$POSTGRES_HOST:$POSTGRES_PORT/$POSTGRES_DB"' >> /app/entrypoint.sh && \
-    echo '    echo "Using Docker environment variables for database connection"' >> /app/entrypoint.sh && \
-    echo 'fi' >> /app/entrypoint.sh && \
-    echo '' >> /app/entrypoint.sh && \
-    echo '# Migrations will be handled by the application automatically' >> /app/entrypoint.sh && \
-    echo '' >> /app/entrypoint.sh && \
-    echo '# Start the application' >> /app/entrypoint.sh && \
-    echo 'echo "Starting GeekTools Plugin Marketplace Server..."' >> /app/entrypoint.sh && \
-    echo 'exec ./server' >> /app/entrypoint.sh
+# Create uploads directory
+RUN mkdir -p uploads
 
-RUN chmod +x /app/entrypoint.sh && chown appuser:appuser /app/entrypoint.sh
+# Copy startup script
+COPY <<EOF /app/start.sh
+#!/bin/bash
+set -e
 
-# Switch to app user
-USER appuser
+# Initialize PostgreSQL if needed
+if [ ! -d "/var/lib/postgresql/data" ]; then
+    mkdir -p /var/lib/postgresql/data
+    chown postgres:postgres /var/lib/postgresql/data
+    su - postgres -c '/usr/lib/postgresql/*/bin/initdb -D /var/lib/postgresql/data'
+fi
 
-# Expose port
-EXPOSE 3000
+# Start PostgreSQL
+su - postgres -c '/usr/lib/postgresql/*/bin/pg_ctl -D /var/lib/postgresql/data -l /var/lib/postgresql/data/logfile start'
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:3000/api/v1/health || exit 1
+# Wait for PostgreSQL to start
+sleep 5
 
-# Set entrypoint
-ENTRYPOINT ["/app/entrypoint.sh"]
+# Create database and user
+su - postgres -c 'createdb marketplace' || true
+su - postgres -c "psql -c \"CREATE USER postgres WITH PASSWORD 'password';\"" || true
+su - postgres -c "psql -c \"GRANT ALL PRIVILEGES ON DATABASE marketplace TO postgres;\"" || true
+
+# Run migrations (you may need to adjust this based on your migration tool)
+export DATABASE_URL="postgres://postgres:password@localhost:5432/marketplace"
+export JWT_SECRET="your-secret-key-change-this-in-production"
+
+# Start the Rust server in background
+cd /app && ./server/server &
+
+# Wait a moment for the server to start
+sleep 3
+
+# Start the Python proxy server
+cd /app && python3 proxy_server.py &
+
+# Keep the container running
+wait
+EOF
+
+RUN chmod +x /app/start.sh
+
+# Expose ports
+EXPOSE 3000 8080 5432
+
+# Set environment variables
+ENV DATABASE_URL="postgres://postgres:password@localhost:5432/marketplace"
+ENV JWT_SECRET="your-secret-key-change-this-in-production"
+
+# Start all services
+CMD ["/app/start.sh"]

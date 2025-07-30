@@ -8,7 +8,7 @@ server:
 
 database:
   # This will be overridden by DATABASE_URL environment variable
-  url: "postgres://postgres:password@localhost:5432/marketplace"
+  url: "postgres://postgres:Jq0pu6T6LCP0JdIeofDoLA1G1@postgres:5432/marketplace"
   max_connections: 10
   connect_timeout: 30
 
@@ -43,11 +43,11 @@ cors:
 # SMTP Configuration (Optional)
 # If not configured here, can be set via environment variables
 smtp:
-  enabled: false  # Set to true to enable email sending
+  enabled: true  # Temporarily disable until fixed
   host: "smtp.gmail.com"
   port: 587
-  username: ""  # Your email address
-  password: ""  # Your email password or app-specific password
-  from_address: "noreply@geektools.dev"
+  username: "peter.fu.369@gmail.com"  # Your email address
+  password: "wkhr eucs gold vyhc"  # Your email password or app-specific password - replace with App Password
+  from_address: "peter.fu.369@gmail.com"  # Use your actual Gmail address
   from_name: "GeekTools Plugin Marketplace"
   use_tls: true

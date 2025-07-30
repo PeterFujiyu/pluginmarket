@@ -65,6 +65,9 @@ async fn main() -> anyhow::Result<()> {
     let database_url = cli.database_url.unwrap_or(config.database.url.clone());
 
     info!("Starting GeekTools Marketplace Server on port {}", port);
+    
+    // Log configuration details
+    log_configuration(&config, port, &database_url);
 
     // Connect to database
     let pool = PgPoolOptions::new()
@@ -154,4 +157,92 @@ fn create_app(state: AppState) -> Router {
                 .layer(cors)
                 .layer(DefaultBodyLimit::max(100 * 1024 * 1024)) // 100MB max file size
         )
+}
+
+fn log_configuration(config: &Config, port: u16, database_url: &str) {
+    info!("=== Server Configuration ===");
+    info!("Server host: {}", config.server.host);
+    info!("Server port: {}", port);
+    if let Some(workers) = config.server.workers {
+        info!("Server workers: {}", workers);
+    }
+    
+    info!("=== Database Configuration ===");
+    // Mask password in database URL for security
+    let masked_db_url = mask_database_password(database_url);
+    info!("Database URL: {}", masked_db_url);
+    info!("Database max connections: {}", config.database.max_connections);
+    info!("Database connect timeout: {}s", config.database.connect_timeout);
+    
+    info!("=== JWT Configuration ===");
+    info!("JWT access token expires in: {}s", config.jwt.access_token_expires_in);
+    info!("JWT refresh token expires in: {}s", config.jwt.refresh_token_expires_in);
+    info!("JWT secret configured: {}", !config.jwt.secret.is_empty());
+    
+    info!("=== Storage Configuration ===");
+    info!("Storage upload path: {}", config.storage.upload_path);
+    info!("Storage max file size: {} bytes ({}MB)", config.storage.max_file_size, config.storage.max_file_size / 1024 / 1024);
+    info!("Storage use CDN: {}", config.storage.use_cdn);
+    if config.storage.use_cdn {
+        info!("Storage CDN base URL: {}", config.storage.cdn_base_url);
+    }
+    
+    info!("=== SMTP Configuration ===");
+    info!("SMTP enabled: {}", config.smtp.enabled);
+    if config.smtp.enabled {
+        info!("SMTP host: {}", config.smtp.host);
+        info!("SMTP port: {}", config.smtp.port);
+        info!("SMTP username: {}", config.smtp.username);
+        info!("SMTP password configured: {}", !config.smtp.password.is_empty());
+        info!("SMTP from address: {}", config.smtp.from_address);
+        info!("SMTP from name: {}", config.smtp.from_name);
+        info!("SMTP use TLS: {}", config.smtp.use_tls);
+        
+        // Log SMTP status
+        if config.smtp.username.is_empty() || config.smtp.password.is_empty() {
+            tracing::warn!("SMTP is enabled but credentials are missing - email sending will be disabled");
+        } else {
+            info!("SMTP fully configured and ready for email sending");
+        }
+    } else {
+        info!("SMTP is disabled - verification codes will be displayed in logs");
+    }
+    
+    info!("=== CORS Configuration ===");
+    info!("CORS allowed origins: {:?}", config.cors.allowed_origins);
+    info!("CORS allowed methods: {:?}", config.cors.allowed_methods);
+    info!("CORS allowed headers: {:?}", config.cors.allowed_headers);
+    
+    info!("=== Configuration Loading Complete ===");
+}
+
+fn mask_database_password(database_url: &str) -> String {
+    // Mask password for security in logs
+    if let Ok(url) = url::Url::parse(database_url) {
+        if url.password().is_some() {
+            let mut masked_url = url.clone();
+            masked_url.set_password(Some("***")).ok();
+            masked_url.to_string()
+        } else {
+            database_url.to_string()
+        }
+    } else {
+        // If parsing fails, try to manually mask password part
+        if let Some(password_start) = database_url.find("://") {
+            if let Some(at_pos) = database_url[password_start + 3..].find('@') {
+                let before_creds = &database_url[..password_start + 3];
+                let after_creds = &database_url[password_start + 3 + at_pos..];
+                if let Some(colon_pos) = database_url[password_start + 3..password_start + 3 + at_pos].find(':') {
+                    let username = &database_url[password_start + 3..password_start + 3 + colon_pos];
+                    format!("{}{}:***{}", before_creds, username, after_creds)
+                } else {
+                    database_url.to_string()
+                }
+            } else {
+                database_url.to_string()
+            }
+        } else {
+            database_url.to_string()
+        }
+    }
 }
