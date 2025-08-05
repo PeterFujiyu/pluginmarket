@@ -1,24 +1,30 @@
 use crate::utils::config::SmtpConfig;
 use anyhow::Result;
+use std::sync::Arc;
+use tokio::sync::RwLock;
 
 pub struct SmtpService {
-    config: SmtpConfig,
+    config: Arc<RwLock<SmtpConfig>>,
 }
 
 impl SmtpService {
     pub fn new(config: SmtpConfig) -> Self {
-        Self { config }
+        Self { 
+            config: Arc::new(RwLock::new(config))
+        }
     }
 
     pub async fn send_verification_code(&self, email: &str, code: &str) -> Result<bool> {
-        if !self.config.enabled {
+        let config = self.config.read().await;
+        
+        if !config.enabled {
             // SMTP not configured, return false to indicate code should be displayed
             tracing::info!("SMTP not enabled, verification code will be displayed: {}", code);
             return Ok(false);
         }
 
         // Validate SMTP configuration
-        if self.config.username.is_empty() || self.config.password.is_empty() {
+        if config.username.is_empty() || config.password.is_empty() {
             tracing::warn!("SMTP credentials not configured, falling back to display mode");
             return Ok(false);
         }
@@ -26,7 +32,7 @@ impl SmtpService {
         let subject = "GeekTools 插件市场 - 邮箱验证码";
         let body = self.create_verification_email_body(code);
 
-        match self.send_email(email, subject, &body).await {
+        match self.send_email_with_config(&config, email, subject, &body).await {
             Ok(_) => {
                 tracing::info!("Verification code sent successfully to {}", email);
                 Ok(true)
@@ -39,44 +45,44 @@ impl SmtpService {
         }
     }
 
-    async fn send_email(&self, to: &str, subject: &str, body: &str) -> Result<()> {
+    async fn send_email_with_config(&self, config: &SmtpConfig, to: &str, subject: &str, body: &str) -> Result<()> {
         use lettre::message::header::ContentType;
         use lettre::transport::smtp::authentication::Credentials;
         use lettre::{Message, SmtpTransport, Transport};
 
         // Build email message
         let email = Message::builder()
-            .from(format!("{} <{}>", self.config.from_name, self.config.from_address).parse()?)
+            .from(format!("{} <{}>", config.from_name, config.from_address).parse()?)
             .to(to.parse()?)
             .subject(subject)
             .header(ContentType::TEXT_HTML)
             .body(body.to_string())?;
 
         // Configure SMTP transport
-        let creds = Credentials::new(self.config.username.clone(), self.config.password.clone());
+        let creds = Credentials::new(config.username.clone(), config.password.clone());
         
-        let transport = if self.config.use_tls {
+        let transport = if config.use_tls {
             // For Gmail: port 465 uses direct SSL, port 587 uses STARTTLS
-            if self.config.port == 465 {
-                SmtpTransport::relay(&self.config.host)?
-                    .port(self.config.port)
+            if config.port == 465 {
+                SmtpTransport::relay(&config.host)?
+                    .port(config.port)
                     .credentials(creds)
                     .timeout(Some(std::time::Duration::from_secs(30)))
                     .tls(lettre::transport::smtp::client::Tls::Wrapper(
-                        lettre::transport::smtp::client::TlsParameters::new(self.config.host.clone())?
+                        lettre::transport::smtp::client::TlsParameters::new(config.host.clone())?
                     ))
                     .build()
             } else {
                 // Use STARTTLS for other ports (like 587) - Gmail recommended
-                SmtpTransport::starttls_relay(&self.config.host)?
-                    .port(self.config.port)
+                SmtpTransport::starttls_relay(&config.host)?
+                    .port(config.port)
                     .credentials(creds)
                     .timeout(Some(std::time::Duration::from_secs(30)))
                     .build()
             }
         } else {
-            SmtpTransport::relay(&self.config.host)?
-                .port(self.config.port)
+            SmtpTransport::relay(&config.host)?
+                .port(config.port)
                 .credentials(creds)
                 .timeout(Some(std::time::Duration::from_secs(30)))
                 .build()
@@ -214,8 +220,89 @@ impl SmtpService {
         )
     }
 
-    pub fn is_enabled(&self) -> bool {
-        self.config.enabled && !self.config.username.is_empty() && !self.config.password.is_empty()
+    pub async fn is_enabled(&self) -> bool {
+        let config = self.config.read().await;
+        config.enabled && !config.username.is_empty() && !config.password.is_empty()
+    }
+
+    pub async fn update_config(&self, new_config: &SmtpConfig) -> Result<()> {
+        // Skip validation during startup to avoid delays
+        // Validation should be done explicitly via test endpoints
+        let mut config = self.config.write().await;
+        *config = new_config.clone();
+        tracing::info!("SMTP configuration updated successfully");
+        Ok(())
+    }
+
+    pub async fn update_config_with_validation(&self, new_config: &SmtpConfig) -> Result<()> {
+        // Perform hot validation before applying the configuration (for explicit updates)
+        if new_config.enabled && !new_config.username.is_empty() && !new_config.password.is_empty() {
+            match self.test_smtp_config_internal(new_config).await {
+                Ok(_) => {
+                    tracing::info!("SMTP configuration validation successful");
+                }
+                Err(e) => {
+                    tracing::warn!("SMTP configuration validation failed: {}", e);
+                    // Continue with update but log warning - allows hot update even if validation fails
+                }
+            }
+        }
+
+        let mut config = self.config.write().await;
+        *config = new_config.clone();
+        tracing::info!("SMTP configuration updated successfully");
+        Ok(())
+    }
+
+    pub async fn send_test_email(&self, to: &str, subject: &str, body: &str) -> Result<()> {
+        let config = self.config.read().await;
+        
+        if !config.enabled {
+            return Err(anyhow::anyhow!("SMTP is not enabled"));
+        }
+
+        if config.username.is_empty() || config.password.is_empty() {
+            return Err(anyhow::anyhow!("SMTP credentials are not configured"));
+        }
+
+        self.send_email_with_config(&config, to, subject, body).await
+    }
+
+    /// Test SMTP configuration without sending actual email (for hot validation)
+    async fn test_smtp_config_internal(&self, smtp_config: &SmtpConfig) -> Result<()> {
+        use lettre::transport::smtp::authentication::Credentials;
+        use lettre::SmtpTransport;
+
+        let creds = Credentials::new(smtp_config.username.clone(), smtp_config.password.clone());
+        
+        let transport = if smtp_config.use_tls {
+            if smtp_config.port == 465 {
+                SmtpTransport::relay(&smtp_config.host)?
+                    .port(smtp_config.port)
+                    .credentials(creds)
+                    .timeout(Some(std::time::Duration::from_secs(3)))
+                    .tls(lettre::transport::smtp::client::Tls::Wrapper(
+                        lettre::transport::smtp::client::TlsParameters::new(smtp_config.host.clone())?
+                    ))
+                    .build()
+            } else {
+                SmtpTransport::starttls_relay(&smtp_config.host)?
+                    .port(smtp_config.port)
+                    .credentials(creds)
+                    .timeout(Some(std::time::Duration::from_secs(3)))
+                    .build()
+            }
+        } else {
+            SmtpTransport::relay(&smtp_config.host)?
+                .port(smtp_config.port)
+                .credentials(creds)
+                .timeout(Some(std::time::Duration::from_secs(10)))
+                .build()
+        };
+
+        // Test connection by connecting and immediately disconnecting
+        transport.test_connection()?;
+        Ok(())
     }
 }
 

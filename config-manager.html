@@ -1,0 +1,579 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>系统配置管理 - GeekTools 管理面板</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        'claude-orange': '#FF8C47',
+                        'claude-bg': '#F9F9F8',
+                        'claude-text': '#2F2F2F',
+                        'claude-light': '#FEFEFE',
+                    },
+                    fontFamily: {
+                        'claude': ['system-ui', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'sans-serif'],
+                    }
+                }
+            }
+        }
+    </script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        body {
+            background: linear-gradient(135deg, #F9F9F8 0%, #EFEFED 100%);
+        }
+        .gradient-card {
+            background: linear-gradient(135deg, rgba(255, 255, 255, 0.9) 0%, rgba(255, 255, 255, 0.7) 100%);
+            backdrop-filter: blur(10px);
+        }
+        .hover-scale {
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .hover-scale:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1);
+        }
+        .spinner {
+            border: 2px solid #f3f3f3;
+            border-top: 2px solid #FF8C47;
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .tab-active {
+            background: linear-gradient(135deg, #FF8C47 0%, #FF7A35 100%);
+            color: white;
+        }
+        .config-section {
+            border-left: 4px solid #FF8C47;
+            padding-left: 1rem;
+        }
+        .status-indicator {
+            position: relative;
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+        }
+        .status-indicator.online {
+            background-color: #10B981;
+            animation: pulse 2s infinite;
+        }
+        .status-indicator.offline {
+            background-color: #EF4444;
+        }
+        .status-indicator.warning {
+            background-color: #F59E0B;
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        .password-field {
+            position: relative;
+        }
+        .password-toggle {
+            position: absolute;
+            right: 12px;
+            top: 50%;
+            transform: translateY(-50%);
+            cursor: pointer;
+            color: #6B7280;
+        }
+        .config-diff {
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+            font-size: 13px;
+        }
+        .diff-added {
+            background-color: #dcfce7;
+            color: #166534;
+        }
+        .diff-removed {
+            background-color: #fecaca;
+            color: #991b1b;
+        }
+    </style>
+</head>
+<body class="font-claude text-claude-text min-h-screen">
+    <!-- Header -->
+    <header class="bg-white/80 backdrop-blur-md border-b border-gray-200 sticky top-0 z-50">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex items-center justify-between h-16">
+                <!-- Logo -->
+                <div class="flex items-center space-x-3">
+                    <div class="w-10 h-10 bg-gradient-to-br from-claude-orange to-orange-600 rounded-xl flex items-center justify-center">
+                        <i class="fas fa-cog text-white text-xl"></i>
+                    </div>
+                    <div>
+                        <h1 class="text-xl font-bold text-claude-text">配置管理</h1>
+                        <p class="text-xs text-gray-500">系统配置中心</p>
+                    </div>
+                </div>
+
+                <!-- Navigation -->
+                <nav class="flex items-center space-x-6">
+                    <a href="admin.html" class="text-gray-600 hover:text-claude-orange transition-colors">
+                        <i class="fas fa-arrow-left mr-2"></i>返回管理面板
+                    </a>
+                    <a href="index.html" class="text-gray-600 hover:text-claude-orange transition-colors">
+                        <i class="fas fa-home mr-2"></i>返回市场
+                    </a>
+                    <div class="flex items-center space-x-2">
+                        <div class="w-8 h-8 bg-gradient-to-br from-claude-orange to-orange-600 rounded-full flex items-center justify-center">
+                            <i class="fas fa-user text-white text-sm"></i>
+                        </div>
+                        <span id="adminEmail" class="text-gray-700 text-sm">管理员</span>
+                    </div>
+                    <button id="logoutBtn" class="text-gray-600 hover:text-claude-orange transition-colors">退出</button>
+                </nav>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <!-- Status Bar -->
+        <div class="mb-6 gradient-card rounded-2xl p-4 border border-white/20">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center space-x-6">
+                    <div class="flex items-center space-x-2">
+                        <span class="status-indicator online"></span>
+                        <span class="text-sm font-medium text-gray-700">服务状态：运行中</span>
+                    </div>
+                    <div class="flex items-center space-x-2">
+                        <i class="fas fa-clock text-gray-500"></i>
+                        <span class="text-sm text-gray-600">最后更新：<span id="lastUpdateTime">加载中...</span></span>
+                    </div>
+                    <div class="flex items-center space-x-2">
+                        <i class="fas fa-history text-gray-500"></i>
+                        <span class="text-sm text-gray-600">配置版本：<span id="configVersion">v1.0.0</span></span>
+                    </div>
+                </div>
+                <div class="flex items-center space-x-3">
+                    <button id="reloadConfigBtn" class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors">
+                        <i class="fas fa-sync-alt mr-2"></i>重新加载
+                    </button>
+                    <button id="backupConfigBtn" class="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors">
+                        <i class="fas fa-download mr-2"></i>备份配置
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tabs -->
+        <div class="mb-8">
+            <div class="flex space-x-1 bg-gray-100 p-1 rounded-xl">
+                <button id="smtpTab" class="tab-btn tab-active px-4 py-2 rounded-lg transition-all">
+                    <i class="fas fa-envelope mr-2"></i>SMTP配置
+                </button>
+                <button id="databaseTab" class="tab-btn px-4 py-2 rounded-lg transition-all">
+                    <i class="fas fa-database mr-2"></i>数据库配置
+                </button>
+                <button id="serverTab" class="tab-btn px-4 py-2 rounded-lg transition-all">
+                    <i class="fas fa-server mr-2"></i>服务器配置
+                </button>
+                <button id="storageTab" class="tab-btn px-4 py-2 rounded-lg transition-all">
+                    <i class="fas fa-hdd mr-2"></i>存储配置
+                </button>
+                <button id="backupTab" class="tab-btn px-4 py-2 rounded-lg transition-all">
+                    <i class="fas fa-archive mr-2"></i>备份管理
+                </button>
+                <button id="historyTab" class="tab-btn px-4 py-2 rounded-lg transition-all">
+                    <i class="fas fa-history mr-2"></i>配置历史
+                </button>
+            </div>
+        </div>
+
+        <!-- SMTP Configuration Tab -->
+        <div id="smtpContent" class="tab-content">
+            <div class="gradient-card rounded-2xl p-6 border border-white/20">
+                <div class="config-section mb-6">
+                    <h3 class="text-xl font-semibold mb-2">SMTP 邮件服务配置</h3>
+                    <p class="text-gray-600 text-sm">配置SMTP服务器用于发送验证码和通知邮件</p>
+                </div>
+
+                <form id="smtpConfigForm" class="space-y-6">
+                    <!-- SMTP Enable -->
+                    <div class="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+                        <div>
+                            <label class="text-sm font-medium text-gray-700">启用SMTP服务</label>
+                            <p class="text-xs text-gray-500">禁用时验证码将在控制台显示</p>
+                        </div>
+                        <label class="relative inline-flex items-center cursor-pointer">
+                            <input type="checkbox" id="smtpEnabled" class="sr-only peer">
+                            <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-claude-orange/25 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-claude-orange"></div>
+                        </label>
+                    </div>
+
+                    <div id="smtpSettings" class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <!-- SMTP Host -->
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">SMTP服务器地址</label>
+                            <input type="text" id="smtpHost" class="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-claude-orange focus:border-transparent" placeholder="smtp.gmail.com">
+                        </div>
+
+                        <!-- SMTP Port -->
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">端口号</label>
+                            <select id="smtpPort" class="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-claude-orange focus:border-transparent">
+                                <option value="587">587 (TLS)</option>
+                                <option value="465">465 (SSL)</option>
+                                <option value="25">25 (明文)</option>
+                            </select>
+                        </div>
+
+                        <!-- SMTP Username -->
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">用户名/邮箱地址</label>
+                            <input type="email" id="smtpUsername" class="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-claude-orange focus:border-transparent" placeholder="your-email@gmail.com">
+                        </div>
+
+                        <!-- SMTP Password -->
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">密码/应用专用密码</label>
+                            <div class="password-field">
+                                <input type="password" id="smtpPassword" class="w-full px-4 py-3 pr-12 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-claude-orange focus:border-transparent" placeholder="应用专用密码">
+                                <i class="fas fa-eye password-toggle" onclick="configManager.togglePassword('smtpPassword')"></i>
+                            </div>
+                        </div>
+
+                        <!-- From Address -->
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">发件人邮箱</label>
+                            <input type="email" id="smtpFromAddress" class="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-claude-orange focus:border-transparent" placeholder="noreply@geektools.dev">
+                        </div>
+
+                        <!-- From Name -->
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">发件人名称</label>
+                            <input type="text" id="smtpFromName" class="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-claude-orange focus:border-transparent" placeholder="GeekTools Plugin Marketplace">
+                        </div>
+                    </div>
+
+                    <!-- TLS Setting -->
+                    <div class="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+                        <div>
+                            <label class="text-sm font-medium text-gray-700">启用TLS加密</label>
+                            <p class="text-xs text-gray-500">推荐开启以保证邮件传输安全</p>
+                        </div>
+                        <label class="relative inline-flex items-center cursor-pointer">
+                            <input type="checkbox" id="smtpUseTls" class="sr-only peer" checked>
+                            <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-claude-orange/25 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-claude-orange"></div>
+                        </label>
+                    </div>
+
+                    <!-- Action Buttons -->
+                    <div class="flex items-center justify-between pt-6 border-t border-gray-200">
+                        <div class="flex space-x-3">
+                            <button type="button" id="testSmtpBtn" class="px-6 py-3 bg-blue-500 text-white rounded-xl hover:bg-blue-600 transition-colors">
+                                <i class="fas fa-paper-plane mr-2"></i>发送测试邮件
+                            </button>
+                            <button type="button" id="resetSmtpBtn" class="px-4 py-3 border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 transition-colors">
+                                <i class="fas fa-undo mr-2"></i>重置
+                            </button>
+                        </div>
+                        <div class="flex space-x-3">
+                            <button type="button" id="previewSmtpChangesBtn" class="px-6 py-3 border border-claude-orange text-claude-orange rounded-xl hover:bg-claude-orange hover:text-white transition-colors">
+                                <i class="fas fa-eye mr-2"></i>预览变更
+                            </button>
+                            <button type="submit" id="saveSmtpBtn" class="px-6 py-3 bg-claude-orange text-white rounded-xl hover:bg-orange-600 transition-colors">
+                                <i class="fas fa-save mr-2"></i>保存并应用
+                            </button>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Database Configuration Tab -->
+        <div id="databaseContent" class="tab-content hidden">
+            <div class="gradient-card rounded-2xl p-6 border border-white/20">
+                <div class="config-section mb-6">
+                    <h3 class="text-xl font-semibold mb-2">数据库连接配置</h3>
+                    <p class="text-gray-600 text-sm">配置PostgreSQL数据库连接参数</p>
+                </div>
+
+                <form id="databaseConfigForm" class="space-y-6">
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <!-- Database URL -->
+                        <div class="md:col-span-2">
+                            <label class="block text-sm font-medium text-gray-700 mb-2">数据库连接URL</label>
+                            <div class="password-field">
+                                <input type="password" id="databaseUrl" class="w-full px-4 py-3 pr-12 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-claude-orange focus:border-transparent" placeholder="postgres://username:password@localhost:5432/marketplace">
+                                <i class="fas fa-eye password-toggle" onclick="configManager.togglePassword('databaseUrl')"></i>
+                            </div>
+                        </div>
+
+                        <!-- Max Connections -->
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">最大连接数</label>
+                            <input type="number" id="databaseMaxConnections" min="1" max="100" class="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-claude-orange focus:border-transparent" placeholder="10">
+                        </div>
+
+                        <!-- Connect Timeout -->
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">连接超时(秒)</label>
+                            <input type="number" id="databaseConnectTimeout" min="5" max="300" class="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-claude-orange focus:border-transparent" placeholder="30">
+                        </div>
+                    </div>
+
+                    <!-- Action Buttons -->
+                    <div class="flex items-center justify-between pt-6 border-t border-gray-200">
+                        <div class="flex space-x-3">
+                            <button type="button" id="testDatabaseBtn" class="px-6 py-3 bg-blue-500 text-white rounded-xl hover:bg-blue-600 transition-colors">
+                                <i class="fas fa-plug mr-2"></i>测试连接
+                            </button>
+                            <button type="button" id="resetDatabaseBtn" class="px-4 py-3 border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 transition-colors">
+                                <i class="fas fa-undo mr-2"></i>重置
+                            </button>
+                        </div>
+                        <div class="flex space-x-3">
+                            <button type="button" id="previewDatabaseChangesBtn" class="px-6 py-3 border border-claude-orange text-claude-orange rounded-xl hover:bg-claude-orange hover:text-white transition-colors">
+                                <i class="fas fa-eye mr-2"></i>预览变更
+                            </button>
+                            <button type="submit" id="saveDatabaseBtn" class="px-6 py-3 bg-claude-orange text-white rounded-xl hover:bg-orange-600 transition-colors">
+                                <i class="fas fa-save mr-2"></i>保存并应用
+                            </button>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Server Configuration Tab -->
+        <div id="serverContent" class="tab-content hidden">
+            <div class="gradient-card rounded-2xl p-6 border border-white/20">
+                <div class="config-section mb-6">
+                    <h3 class="text-xl font-semibold mb-2">服务器运行配置</h3>
+                    <p class="text-gray-600 text-sm">配置服务器基本运行参数</p>
+                </div>
+
+                <form id="serverConfigForm" class="space-y-6">
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <!-- Server Host -->
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">绑定地址</label>
+                            <input type="text" id="serverHost" class="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-claude-orange focus:border-transparent" placeholder="0.0.0.0">
+                        </div>
+
+                        <!-- Server Port -->
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">端口号</label>
+                            <input type="number" id="serverPort" min="1024" max="65535" class="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-claude-orange focus:border-transparent" placeholder="3000">
+                        </div>
+
+                        <!-- JWT Secret -->
+                        <div class="md:col-span-2">
+                            <label class="block text-sm font-medium text-gray-700 mb-2">JWT密钥</label>
+                            <div class="password-field">
+                                <input type="password" id="jwtSecret" class="w-full px-4 py-3 pr-12 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-claude-orange focus:border-transparent" placeholder="生产环境请使用复杂密钥">
+                                <i class="fas fa-eye password-toggle" onclick="configManager.togglePassword('jwtSecret')"></i>
+                            </div>
+                        </div>
+
+                        <!-- JWT Token Expiry -->
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">访问令牌过期时间(秒)</label>
+                            <input type="number" id="jwtAccessTokenExpiry" min="300" max="86400" class="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-claude-orange focus:border-transparent" placeholder="3600">
+                        </div>
+
+                        <!-- JWT Refresh Token Expiry -->
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">刷新令牌过期时间(秒)</label>
+                            <input type="number" id="jwtRefreshTokenExpiry" min="86400" max="2592000" class="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-claude-orange focus:border-transparent" placeholder="604800">
+                        </div>
+
+                        <!-- CORS Origins -->
+                        <div class="md:col-span-2">
+                            <label class="block text-sm font-medium text-gray-700 mb-2">允许的CORS源</label>
+                            <textarea id="corsOrigins" rows="3" class="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-claude-orange focus:border-transparent" placeholder="http://localhost:8080&#10;http://localhost:3000&#10;https://yourdomain.com"></textarea>
+                            <p class="text-xs text-gray-500 mt-1">每行一个URL</p>
+                        </div>
+                    </div>
+
+                    <!-- Action Buttons -->
+                    <div class="flex items-center justify-between pt-6 border-t border-gray-200">
+                        <div class="flex space-x-3">
+                            <button type="button" id="generateJwtSecretBtn" class="px-6 py-3 bg-purple-500 text-white rounded-xl hover:bg-purple-600 transition-colors">
+                                <i class="fas fa-key mr-2"></i>生成JWT密钥
+                            </button>
+                            <button type="button" id="resetServerBtn" class="px-4 py-3 border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 transition-colors">
+                                <i class="fas fa-undo mr-2"></i>重置
+                            </button>
+                        </div>
+                        <div class="flex space-x-3">
+                            <button type="button" id="previewServerChangesBtn" class="px-6 py-3 border border-claude-orange text-claude-orange rounded-xl hover:bg-claude-orange hover:text-white transition-colors">
+                                <i class="fas fa-eye mr-2"></i>预览变更
+                            </button>
+                            <button type="submit" id="saveServerBtn" class="px-6 py-3 bg-claude-orange text-white rounded-xl hover:bg-orange-600 transition-colors">
+                                <i class="fas fa-save mr-2"></i>保存并应用
+                            </button>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Storage Configuration Tab -->
+        <div id="storageContent" class="tab-content hidden">
+            <div class="gradient-card rounded-2xl p-6 border border-white/20">
+                <div class="config-section mb-6">
+                    <h3 class="text-xl font-semibold mb-2">文件存储配置</h3>
+                    <p class="text-gray-600 text-sm">配置插件文件上传和存储参数</p>
+                </div>
+
+                <form id="storageConfigForm" class="space-y-6">
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <!-- Upload Path -->
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">上传文件路径</label>
+                            <input type="text" id="storageUploadPath" class="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-claude-orange focus:border-transparent" placeholder="./uploads">
+                        </div>
+
+                        <!-- Max File Size -->
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">最大文件大小(MB)</label>
+                            <input type="number" id="storageMaxFileSize" min="1" max="1000" class="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-claude-orange focus:border-transparent" placeholder="100">
+                        </div>
+
+                        <!-- CDN Settings -->
+                        <div class="md:col-span-2">
+                            <div class="flex items-center justify-between p-4 bg-gray-50 rounded-lg mb-4">
+                                <div>
+                                    <label class="text-sm font-medium text-gray-700">启用CDN加速</label>
+                                    <p class="text-xs text-gray-500">使用CDN加速文件下载</p>
+                                </div>
+                                <label class="relative inline-flex items-center cursor-pointer">
+                                    <input type="checkbox" id="storageUseCdn" class="sr-only peer">
+                                    <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-claude-orange/25 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-claude-orange"></div>
+                                </label>
+                            </div>
+
+                            <div id="cdnSettings" class="hidden">
+                                <label class="block text-sm font-medium text-gray-700 mb-2">CDN基础URL</label>
+                                <input type="url" id="storageCdnBaseUrl" class="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-claude-orange focus:border-transparent" placeholder="https://cdn.geektools.dev">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Action Buttons -->
+                    <div class="flex items-center justify-between pt-6 border-t border-gray-200">
+                        <div class="flex space-x-3">
+                            <button type="button" id="testStorageBtn" class="px-6 py-3 bg-blue-500 text-white rounded-xl hover:bg-blue-600 transition-colors">
+                                <i class="fas fa-upload mr-2"></i>测试上传
+                            </button>
+                            <button type="button" id="resetStorageBtn" class="px-4 py-3 border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 transition-colors">
+                                <i class="fas fa-undo mr-2"></i>重置
+                            </button>
+                        </div>
+                        <div class="flex space-x-3">
+                            <button type="button" id="previewStorageChangesBtn" class="px-6 py-3 border border-claude-orange text-claude-orange rounded-xl hover:bg-claude-orange hover:text-white transition-colors">
+                                <i class="fas fa-eye mr-2"></i>预览变更
+                            </button>
+                            <button type="submit" id="saveStorageBtn" class="px-6 py-3 bg-claude-orange text-white rounded-xl hover:bg-orange-600 transition-colors">
+                                <i class="fas fa-save mr-2"></i>保存并应用
+                            </button>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Backup Management Tab -->
+        <div id="backupContent" class="tab-content hidden">
+            <!-- Backup content will be loaded from backup-manager.html -->
+        </div>
+
+        <!-- Configuration History Tab -->
+        <div id="historyContent" class="tab-content hidden">
+            <!-- History content will be loaded from config-history.html -->
+        </div>
+    </main>
+
+    <!-- Modals -->
+    <!-- Preview Changes Modal -->
+    <div id="previewModal" class="fixed inset-0 bg-black bg-opacity-50 hidden z-50 backdrop-blur-sm">
+        <div class="flex items-center justify-center min-h-screen p-4">
+            <div class="bg-white rounded-2xl max-w-4xl w-full max-h-[80vh] overflow-hidden">
+                <div class="p-6 border-b border-gray-200">
+                    <div class="flex items-center justify-between">
+                        <h2 class="text-xl font-bold text-claude-text">配置变更预览</h2>
+                        <button id="closePreviewModal" class="text-gray-500 hover:text-gray-700">
+                            <i class="fas fa-times text-xl"></i>
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="p-6 overflow-y-auto max-h-[60vh]">
+                    <div id="previewContent" class="config-diff p-4">
+                        <!-- Preview content will be shown here -->
+                    </div>
+                </div>
+
+                <div class="p-6 border-t border-gray-200 flex justify-end space-x-3">
+                    <button id="cancelPreview" class="px-6 py-3 border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 transition-colors">
+                        取消
+                    </button>
+                    <button id="confirmApplyChanges" class="px-6 py-3 bg-claude-orange text-white rounded-xl hover:bg-orange-600 transition-colors">
+                        <i class="fas fa-check mr-2"></i>确认应用
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Test Email Modal -->
+    <div id="testEmailModal" class="fixed inset-0 bg-black bg-opacity-50 hidden z-50 backdrop-blur-sm">
+        <div class="flex items-center justify-center min-h-screen p-4">
+            <div class="bg-white rounded-2xl max-w-md w-full">
+                <div class="p-6">
+                    <div class="flex items-center justify-between mb-6">
+                        <h2 class="text-xl font-bold text-claude-text">发送测试邮件</h2>
+                        <button id="closeTestEmailModal" class="text-gray-500 hover:text-gray-700">
+                            <i class="fas fa-times text-xl"></i>
+                        </button>
+                    </div>
+                    
+                    <form id="testEmailForm" class="space-y-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">收件人邮箱</label>
+                            <input type="email" id="testEmailRecipient" class="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-claude-orange focus:border-transparent" placeholder="test@example.com" required>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">邮件主题</label>
+                            <input type="text" id="testEmailSubject" value="GeekTools SMTP测试邮件" class="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-claude-orange focus:border-transparent">
+                        </div>
+                        
+                        <div class="flex space-x-3 pt-4">
+                            <button type="button" id="cancelTestEmail" class="flex-1 px-4 py-3 border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 transition-colors">
+                                取消
+                            </button>
+                            <button type="submit" id="sendTestEmailBtn" class="flex-1 px-4 py-3 bg-claude-orange text-white rounded-xl hover:bg-orange-600 transition-colors">
+                                <span id="sendTestEmailText">发送邮件</span>
+                                <div id="sendTestEmailSpinner" class="hidden spinner inline-block ml-2"></div>
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="config.js"></script>
+    <script src="config-manager.js"></script>
+</body>
+</html>

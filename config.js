@@ -7,6 +7,40 @@ window.GeekToolsConfig = {
     // 生产环境：https://api.your-domain.com/v1
     apiBaseUrl: '/api/v1',
     
+    // 管理面板配置
+    admin: {
+        // 自动刷新间隔 (毫秒)
+        autoRefreshInterval: 30000,
+        
+        // 配置管理
+        config: {
+            // 配置变更备份
+            autoBackupOnChange: true,
+            // 配置版本保留数量
+            maxVersionHistory: 50
+        },
+        
+        // 备份管理
+        backup: {
+            // 默认保留天数
+            defaultRetentionDays: 30,
+            // 最大备份文件大小 (MB)
+            maxBackupSize: 1024,
+            // 定时备份默认时间
+            defaultScheduleTime: '02:00'
+        },
+        
+        // 系统监控
+        monitor: {
+            // 监控数据刷新间隔 (毫秒)
+            refreshInterval: 30000,
+            // 性能图表数据点数量
+            chartDataPoints: 50,
+            // 日志加载数量
+            logLimit: 50
+        }
+    },
+    
     // 前端配置
     frontend: {
         // 每页显示的插件数量

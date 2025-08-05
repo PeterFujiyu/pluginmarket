@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>配置历史管理 - GeekTools 管理面板</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        'claude-orange': '#FF8C47',
+                        'claude-bg': '#F9F9F8',
+                        'claude-text': '#2F2F2F',
+                        'claude-light': '#FEFEFE',
+                    },
+                    fontFamily: {
+                        'claude': ['system-ui', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'sans-serif'],
+                    }
+                }
+            }
+        }
+    </script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        body {
+            background: linear-gradient(135deg, #F9F9F8 0%, #EFEFED 100%);
+        }
+        .gradient-card {
+            background: linear-gradient(135deg, rgba(255, 255, 255, 0.9) 0%, rgba(255, 255, 255, 0.7) 100%);
+            backdrop-filter: blur(10px);
+        }
+        .spinner {
+            border: 2px solid #f3f3f3;
+            border-top: 2px solid #FF8C47;
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .timeline {
+            position: relative;
+        }
+        .timeline::before {
+            content: '';
+            position: absolute;
+            left: 20px;
+            top: 0;
+            bottom: 0;
+            width: 2px;
+            background: linear-gradient(to bottom, #FF8C47, #FFA570);
+        }
+        .timeline-item {
+            position: relative;
+            margin-left: 40px;
+            padding-bottom: 2rem;
+        }
+        .timeline-item::before {
+            content: '';
+            position: absolute;
+            left: -29px;
+            top: 8px;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: white;
+            border: 3px solid #FF8C47;
+        }
+        .timeline-item.current::before {
+            background: #FF8C47;
+            box-shadow: 0 0 0 4px rgba(255, 140, 71, 0.2);
+            animation: pulse 2s infinite;
+        }
+        .timeline-item.rollback::before {
+            background: #EF4444;
+            border-color: #EF4444;
+        }
+        .config-diff {
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+            font-size: 13px;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        .diff-line {
+            padding: 2px 8px;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+        .diff-added {
+            background-color: #dcfce7;
+            color: #166534;
+        }
+        .diff-removed {
+            background-color: #fecaca;
+            color: #991b1b;
+        }
+        .diff-unchanged {
+            color: #6b7280;
+        }
+        .history-card {
+            transition: all 0.3s ease;
+        }
+        .history-card:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        }
+        .version-tag {
+            position: relative;
+            display: inline-block;
+        }
+        .version-tag.major {
+            background: linear-gradient(135deg, #EF4444 0%, #DC2626 100%);
+        }
+        .version-tag.minor {
+            background: linear-gradient(135deg, #F59E0B 0%, #D97706 100%);
+        }
+        .version-tag.patch {
+            background: linear-gradient(135deg, #10B981 0%, #059669 100%);
+        }
+        .rollback-warning {
+            background: linear-gradient(135deg, rgba(239, 68, 68, 0.1) 0%, rgba(220, 38, 38, 0.1) 100%);
+            border: 1px solid rgba(239, 68, 68, 0.2);
+        }
+    </style>
+</head>
+<body class="font-claude text-claude-text min-h-screen">
+    <!-- Header -->
+    <header class="bg-white/80 backdrop-blur-md border-b border-gray-200 sticky top-0 z-50">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex items-center justify-between h-16">
+                <!-- Logo -->
+                <div class="flex items-center space-x-3">
+                    <div class="w-10 h-10 bg-gradient-to-br from-claude-orange to-orange-600 rounded-xl flex items-center justify-center">
+                        <i class="fas fa-history text-white text-xl"></i>
+                    </div>
+                    <div>
+                        <h1 class="text-xl font-bold text-claude-text">配置历史</h1>
+                        <p class="text-xs text-gray-500">变更记录与回滚</p>
+                    </div>
+                </div>
+
+                <!-- Quick Stats -->
+                <div class="flex items-center space-x-6">
+                    <div class="text-center">
+                        <div class="text-lg font-bold text-claude-text" id="totalVersions">-</div>
+                        <div class="text-xs text-gray-500">总版本数</div>
+                    </div>
+                    <div class="text-center">
+                        <div class="text-lg font-bold text-claude-text" id="currentVersion">-</div>
+                        <div class="text-xs text-gray-500">当前版本</div>
+                    </div>
+                    <div class="text-center">
+                        <div class="text-lg font-bold text-claude-text" id="lastModified">-</div>
+                        <div class="text-xs text-gray-500">最后修改</div>
+                    </div>
+                </div>
+
+                <!-- Navigation -->
+                <nav class="flex items-center space-x-6">
+                    <a href="config-manager.html" class="text-gray-600 hover:text-claude-orange transition-colors">
+                        <i class="fas fa-arrow-left mr-2"></i>返回配置管理
+                    </a>
+                    <a href="admin.html" class="text-gray-600 hover:text-claude-orange transition-colors">
+                        <i class="fas fa-tachometer-alt mr-2"></i>管理面板
+                    </a>
+                    <div class="flex items-center space-x-2">
+                        <div class="w-8 h-8 bg-gradient-to-br from-claude-orange to-orange-600 rounded-full flex items-center justify-center">
+                            <i class="fas fa-user text-white text-sm"></i>
+                        </div>
+                        <span id="adminEmail" class="text-gray-700 text-sm">管理员</span>
+                    </div>
+                    <button id="logoutBtn" class="text-gray-600 hover:text-claude-orange transition-colors">退出</button>
+                </nav>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <!-- Action Bar -->
+        <div class="gradient-card rounded-2xl p-4 border border-white/20 mb-8">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center space-x-4">
+                    <button id="createSnapshotBtn" class="px-6 py-3 bg-claude-orange text-white rounded-xl hover:bg-orange-600 transition-colors flex items-center">
+                        <i class="fas fa-camera mr-2"></i>创建快照
+                    </button>
+                    <button id="exportHistoryBtn" class="px-6 py-3 bg-blue-500 text-white rounded-xl hover:bg-blue-600 transition-colors flex items-center">
+                        <i class="fas fa-download mr-2"></i>导出历史
+                    </button>
+                    <button id="importHistoryBtn" class="px-6 py-3 border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 transition-colors flex items-center">
+                        <i class="fas fa-upload mr-2"></i>导入配置
+                    </button>
+                </div>
+                <div class="flex items-center space-x-3">
+                    <select id="configTypeFilter" class="px-4 py-2 border border-gray-200 rounded-lg">
+                        <option value="">所有配置</option>
+                        <option value="smtp">SMTP配置</option>
+                        <option value="database">数据库配置</option>
+                        <option value="server">服务器配置</option>
+                        <option value="storage">存储配置</option>
+                    </select>
+                    <select id="timeRangeFilter" class="px-4 py-2 border border-gray-200 rounded-lg">
+                        <option value="">所有时间</option>
+                        <option value="today">今天</option>
+                        <option value="week">本周</option>
+                        <option value="month">本月</option>
+                    </select>
+                    <button id="refreshHistoryBtn" class="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors">
+                        <i class="fas fa-sync-alt mr-2"></i>刷新
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- History Timeline -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            <!-- Timeline -->
+            <div class="lg:col-span-2">
+                <div class="gradient-card rounded-2xl p-6 border border-white/20">
+                    <div class="flex items-center justify-between mb-6">
+                        <h3 class="text-lg font-semibold">配置变更时间线</h3>
+                        <div class="flex items-center space-x-2 text-sm text-gray-500">
+                            <div class="flex items-center">
+                                <div class="w-3 h-3 bg-claude-orange rounded-full mr-2"></div>
+                                <span>当前版本</span>
+                            </div>
+                            <div class="flex items-center ml-4">
+                                <div class="w-3 h-3 bg-red-500 rounded-full mr-2"></div>
+                                <span>回滚版本</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="configTimeline" class="timeline">
+                        <!-- Timeline items will be populated here -->
+                    </div>
+
+                    <!-- Loading State -->
+                    <div id="timelineLoading" class="text-center py-8">
+                        <div class="spinner inline-block"></div>
+                        <span class="ml-3 text-gray-600">加载配置历史...</span>
+                    </div>
+
+                    <!-- Empty State -->
+                    <div id="timelineEmpty" class="hidden text-center py-8">
+                        <div class="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                            <i class="fas fa-history text-gray-400 text-2xl"></i>
+                        </div>
+                        <p class="text-gray-500">暂无配置变更历史</p>
+                    </div>
+
+                    <!-- Pagination -->
+                    <div id="timelinePagination" class="hidden flex items-center justify-center mt-6 space-x-3">
+                        <button id="prevPage" class="px-4 py-2 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50">
+                            <i class="fas fa-chevron-left"></i>
+                        </button>
+                        <span id="pageInfo" class="px-4 py-2 text-sm text-gray-600">第 1 页，共 1 页</span>
+                        <button id="nextPage" class="px-4 py-2 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50">
+                            <i class="fas fa-chevron-right"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Sidebar -->
+            <div class="space-y-6">
+                <!-- Current Configuration -->
+                <div class="gradient-card rounded-2xl p-6 border border-white/20">
+                    <h3 class="text-lg font-semibold mb-4">当前配置状态</h3>
+                    <div class="space-y-3">
+                        <div class="flex justify-between text-sm">
+                            <span class="text-gray-600">配置版本:</span>
+                            <span class="font-medium" id="currentConfigVersion">v2.1.3</span>
+                        </div>
+                        <div class="flex justify-between text-sm">
+                            <span class="text-gray-600">最后更新:</span>
+                            <span class="font-medium" id="lastUpdateTime">-</span>
+                        </div>
+                        <div class="flex justify-between text-sm">
+                            <span class="text-gray-600">更新者:</span>
+                            <span class="font-medium" id="lastUpdatedBy">-</span>
+                        </div>
+                        <div class="flex justify-between text-sm">
+                            <span class="text-gray-600">配置文件:</span>
+                            <span class="font-medium" id="configFileCount">4个</span>
+                        </div>
+                        <div class="flex justify-between text-sm">
+                            <span class="text-gray-600">总大小:</span>
+                            <span class="font-medium" id="configSize">12.3 KB</span>
+                        </div>
+                    </div>
+                    <div class="mt-4 pt-4 border-t border-gray-200">
+                        <button id="downloadCurrentConfigBtn" class="w-full px-4 py-3 bg-blue-500 text-white rounded-xl hover:bg-blue-600 transition-colors">
+                            <i class="fas fa-download mr-2"></i>下载当前配置
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Quick Actions -->
+                <div class="gradient-card rounded-2xl p-6 border border-white/20">
+                    <h3 class="text-lg font-semibold mb-4">快速操作</h3>
+                    <div class="space-y-3">
+                        <button id="compareConfigsBtn" class="w-full flex items-center justify-center px-4 py-3 bg-purple-500 text-white rounded-xl hover:bg-purple-600 transition-colors">
+                            <i class="fas fa-code-branch mr-2"></i>版本比较
+                        </button>
+                        <button id="rollbackToStableBtn" class="w-full flex items-center justify-center px-4 py-3 bg-green-500 text-white rounded-xl hover:bg-green-600 transition-colors">
+                            <i class="fas fa-undo mr-2"></i>回滚到稳定版
+                        </button>
+                        <button id="scheduleRollbackBtn" class="w-full flex items-center justify-center px-4 py-3 border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 transition-colors">
+                            <i class="fas fa-clock mr-2"></i>定时回滚
+                        </button>
+                        <button id="cleanupOldVersionsBtn" class="w-full flex items-center justify-center px-4 py-3 border border-red-200 text-red-600 rounded-xl hover:bg-red-50 transition-colors">
+                            <i class="fas fa-trash mr-2"></i>清理旧版本
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Statistics -->
+                <div class="gradient-card rounded-2xl p-6 border border-white/20">
+                    <h3 class="text-lg font-semibold mb-4">变更统计</h3>
+                    <div class="space-y-4">
+                        <div>
+                            <div class="flex justify-between text-sm mb-2">
+                                <span class="text-gray-600">本月变更次数</span>
+                                <span class="font-medium" id="monthlyChanges">15次</span>
+                            </div>
+                            <div class="w-full bg-gray-200 rounded-full h-2">
+                                <div class="bg-claude-orange h-2 rounded-full" style="width: 60%" id="monthlyChangesBar"></div>
+                            </div>
+                        </div>
+                        <div class="text-xs text-gray-500 space-y-1">
+                            <div class="flex justify-between">
+                                <span>SMTP配置:</span>
+                                <span id="smtpChanges">5次</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span>数据库配置:</span>
+                                <span id="databaseChanges">3次</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span>服务器配置:</span>
+                                <span id="serverChanges">4次</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span>存储配置:</span>
+                                <span id="storageChanges">3次</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Modals -->
+    <!-- Create Snapshot Modal -->
+    <div id="createSnapshotModal" class="fixed inset-0 bg-black bg-opacity-50 hidden z-50 backdrop-blur-sm">
+        <div class="flex items-center justify-center min-h-screen p-4">
+            <div class="bg-white rounded-2xl max-w-md w-full">
+                <div class="p-6">
+                    <div class="flex items-center justify-between mb-6">
+                        <h2 class="text-xl font-bold text-claude-text">创建配置快照</h2>
+                        <button id="closeCreateSnapshotModal" class="text-gray-500 hover:text-gray-700">
+                            <i class="fas fa-times text-xl"></i>
+                        </button>
+                    </div>
+                    
+                    <form id="createSnapshotForm" class="space-y-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">快照名称</label>
+                            <input type="text" id="snapshotName" class="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-claude-orange focus:border-transparent" placeholder="自动生成" value="">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">描述信息</label>
+                            <textarea id="snapshotDescription" rows="3" class="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-claude-orange focus:border-transparent" placeholder="可选描述，如：发布前备份、重要变更等"></textarea>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">快照类型</label>
+                            <select id="snapshotType" class="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-claude-orange focus:border-transparent">
+                                <option value="manual">手动快照</option>
+                                <option value="stable">稳定版本</option>
+                                <option value="backup">备份快照</option>
+                            </select>
+                        </div>
+                        <div class="flex items-center">
+                            <input type="checkbox" id="includeSecrets" class="w-4 h-4 text-claude-orange border-gray-300 rounded focus:ring-claude-orange">
+                            <label for="includeSecrets" class="ml-2 text-sm text-gray-700">包含敏感信息（密码、密钥等）</label>
+                        </div>
+                        
+                        <div class="flex space-x-3 pt-4">
+                            <button type="button" id="cancelCreateSnapshot" class="flex-1 px-4 py-3 border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 transition-colors">
+                                取消
+                            </button>
+                            <button type="submit" id="confirmCreateSnapshot" class="flex-1 px-4 py-3 bg-claude-orange text-white rounded-xl hover:bg-orange-600 transition-colors">
+                                <span id="createSnapshotText">创建快照</span>
+                                <div id="createSnapshotSpinner" class="hidden spinner inline-block ml-2"></div>
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Rollback Confirmation Modal -->
+    <div id="rollbackModal" class="fixed inset-0 bg-black bg-opacity-50 hidden z-50 backdrop-blur-sm">
+        <div class="flex items-center justify-center min-h-screen p-4">
+            <div class="bg-white rounded-2xl max-w-lg w-full">
+                <div class="p-6">
+                    <div class="flex items-center justify-between mb-6">
+                        <h2 class="text-xl font-bold text-claude-text">确认配置回滚</h2>
+                        <button id="closeRollbackModal" class="text-gray-500 hover:text-gray-700">
+                            <i class="fas fa-times text-xl"></i>
+                        </button>
+                    </div>
+
+                    <div class="rollback-warning rounded-lg p-4 mb-6">
+                        <div class="flex items-start">
+                            <i class="fas fa-exclamation-triangle text-red-500 mt-0.5 mr-3"></i>
+                            <div>
+                                <h3 class="text-sm font-medium text-red-800">重要提醒</h3>
+                                <p class="text-sm text-red-700 mt-1">配置回滚将替换当前配置，此操作可能影响服务运行。建议在回滚前创建当前配置的快照。</p>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="space-y-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">回滚到版本</label>
+                            <div class="border border-gray-200 rounded-xl p-4">
+                                <div class="flex items-center justify-between">
+                                    <div>
+                                        <p class="font-medium" id="rollbackVersionName">-</p>
+                                        <p class="text-sm text-gray-500" id="rollbackVersionInfo">-</p>
+                                    </div>
+                                    <div class="text-right">
+                                        <p class="text-sm font-medium" id="rollbackVersionDate">-</p>
+                                        <p class="text-xs text-gray-500" id="rollbackVersionAuthor">-</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="flex items-center">
+                            <input type="checkbox" id="createBackupBeforeRollback" class="w-4 h-4 text-claude-orange border-gray-300 rounded focus:ring-claude-orange" checked>
+                            <label for="createBackupBeforeRollback" class="ml-2 text-sm text-gray-700">回滚前自动创建当前配置快照</label>
+                        </div>
+
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">回滚原因</label>
+                            <textarea id="rollbackReason" rows="3" class="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-claude-orange focus:border-transparent" placeholder="请简要说明回滚原因..."></textarea>
+                        </div>
+                        
+                        <div class="flex space-x-3 pt-4">
+                            <button type="button" id="cancelRollback" class="flex-1 px-4 py-3 border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 transition-colors">
+                                取消
+                            </button>
+                            <button type="button" id="confirmRollback" class="flex-1 px-4 py-3 bg-red-500 text-white rounded-xl hover:bg-red-600 transition-colors">
+                                <span id="rollbackText">确认回滚</span>
+                                <div id="rollbackSpinner" class="hidden spinner inline-block ml-2"></div>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Version Compare Modal -->
+    <div id="compareModal" class="fixed inset-0 bg-black bg-opacity-50 hidden z-50 backdrop-blur-sm">
+        <div class="flex items-center justify-center min-h-screen p-4">
+            <div class="bg-white rounded-2xl max-w-6xl w-full max-h-[90vh] overflow-hidden">
+                <div class="p-6 border-b border-gray-200">
+                    <div class="flex items-center justify-between">
+                        <h2 class="text-xl font-bold text-claude-text">版本比较</h2>
+                        <button id="closeCompareModal" class="text-gray-500 hover:text-gray-700">
+                            <i class="fas fa-times text-xl"></i>
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="p-6">
+                    <div class="grid grid-cols-2 gap-4 mb-6">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">版本A</label>
+                            <select id="compareVersionA" class="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-claude-orange focus:border-transparent">
+                                <!-- Options will be populated -->
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">版本B</label>
+                            <select id="compareVersionB" class="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-claude-orange focus:border-transparent">
+                                <!-- Options will be populated -->
+                            </select>
+                        </div>
+                    </div>
+
+                    <div id="compareResult" class="config-diff p-4 max-h-96 overflow-y-auto">
+                        <div class="text-center text-gray-500 py-8">
+                            <i class="fas fa-code-branch text-4xl mb-4"></i>
+                            <p>选择两个版本进行比较</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="config.js"></script>
+    <script src="config-history.js"></script>
+</body>
+</html>

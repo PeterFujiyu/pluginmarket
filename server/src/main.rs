@@ -25,7 +25,7 @@ use tower_http::{
 use tracing::info;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
-use handlers::{auth, plugins, search, health, admin};
+use handlers::{auth, plugins, search, health, admin, config, backup, monitoring};
 use services::AppState;
 use utils::config::Config;
 
@@ -144,6 +144,45 @@ fn create_app(state: AppState) -> Router {
         .route("/admin/sql/execute", post(admin::execute_sql))
         .route("/admin/login-activities", get(admin::get_user_login_activities))
         .route("/admin/recent-logins", get(admin::get_recent_logins))
+        
+        // Configuration Management routes
+        .route("/admin/config", get(config::get_config))
+        .route("/admin/config/update", post(config::update_config))
+        .route("/admin/config/test", post(config::test_config))
+        .route("/admin/config/test/email", post(config::test_email))
+        .route("/admin/config/rollback", post(config::rollback_config))
+        .route("/admin/config/history", get(config::get_config_history))
+        .route("/admin/config/snapshot", post(config::create_config_snapshot))
+        .route("/admin/config/compare", get(config::compare_config_versions))
+        
+        // Backup Management routes
+        .route("/admin/backup/stats", get(backup::get_backup_stats))
+        .route("/admin/backup/list", get(backup::list_backups))
+        .route("/admin/backup/create", post(backup::create_backup))
+        .route("/admin/backup/restore", post(backup::restore_backup))
+        .route("/admin/backup/delete", post(backup::delete_backup))
+        .route("/admin/backup/:id/download", get(backup::download_backup))
+        .route("/admin/backup/status/:operation_id", get(backup::get_operation_status))
+        .route("/admin/backup/operations", get(backup::list_operations))
+        .route("/admin/backup/schedules", get(backup::list_schedules))
+        .route("/admin/backup/schedule", post(backup::create_schedule))
+        .route("/admin/backup/schedule/update", post(backup::update_schedule))
+        .route("/admin/backup/schedule/:id/delete", post(backup::delete_schedule))
+        .route("/admin/backup/schedule/:id/toggle", post(backup::toggle_schedule))
+        
+        // System Monitoring routes
+        .route("/admin/monitor/overview", get(monitoring::get_monitoring_overview))
+        .route("/admin/monitor/system", get(monitoring::get_system_metrics))
+        .route("/admin/monitor/services", get(monitoring::get_services_status))
+        .route("/admin/monitor/database", get(monitoring::get_database_status))
+        .route("/admin/monitor/smtp", get(monitoring::get_smtp_status))
+        .route("/admin/monitor/logs", get(monitoring::get_system_logs))
+        .route("/admin/monitor/test/database", post(monitoring::test_database_connection))
+        .route("/admin/monitor/test/smtp", post(monitoring::test_smtp_connection))
+        .route("/admin/monitor/performance", get(monitoring::get_performance_chart_data))
+        .route("/admin/monitor/metrics/record", post(monitoring::record_system_metrics))
+        .route("/admin/monitor/cleanup", post(monitoring::cleanup_old_data))
+        .route("/admin/monitor/log", post(monitoring::log_system_event))
         
         .with_state(state);
 

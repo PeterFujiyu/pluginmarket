@@ -1,0 +1,546 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>系统状态监控 - GeekTools 管理面板</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        'claude-orange': '#FF8C47',
+                        'claude-bg': '#F9F9F8',
+                        'claude-text': '#2F2F2F',
+                        'claude-light': '#FEFEFE',
+                    },
+                    fontFamily: {
+                        'claude': ['system-ui', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'sans-serif'],
+                    }
+                }
+            }
+        }
+    </script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        body {
+            background: linear-gradient(135deg, #F9F9F8 0%, #EFEFED 100%);
+        }
+        .gradient-card {
+            background: linear-gradient(135deg, rgba(255, 255, 255, 0.9) 0%, rgba(255, 255, 255, 0.7) 100%);
+            backdrop-filter: blur(10px);
+        }
+        .spinner {
+            border: 2px solid #f3f3f3;
+            border-top: 2px solid #FF8C47;
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .status-online {
+            background: linear-gradient(135deg, #10B981 0%, #059669 100%);
+            animation: pulse 2s infinite;
+        }
+        .status-warning {
+            background: linear-gradient(135deg, #F59E0B 0%, #D97706 100%);
+            animation: pulse 2s infinite;
+        }
+        .status-offline {
+            background: linear-gradient(135deg, #EF4444 0%, #DC2626 100%);
+        }
+        .metric-card {
+            transition: all 0.3s ease;
+        }
+        .metric-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.1);
+        }
+        .chart-container {
+            position: relative;
+            height: 200px;
+        }
+        .progress-ring {
+            transform: rotate(-90deg);
+        }
+        .progress-ring-circle {
+            transition: stroke-dasharray 0.5s ease;
+        }
+        .health-indicator {
+            position: relative;
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+        .health-indicator.healthy {
+            background-color: #10B981;
+            box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.2);
+            animation: pulse 2s infinite;
+        }
+        .health-indicator.warning {
+            background-color: #F59E0B;
+            box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.2);
+            animation: pulse 2s infinite;
+        }
+        .health-indicator.critical {
+            background-color: #EF4444;
+            box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.2);
+        }
+        .log-entry {
+            border-left: 3px solid transparent;
+            transition: all 0.2s ease;
+        }
+        .log-entry.error {
+            border-left-color: #EF4444;
+            background-color: rgba(239, 68, 68, 0.05);
+        }
+        .log-entry.warning {
+            border-left-color: #F59E0B;
+            background-color: rgba(245, 158, 11, 0.05);
+        }
+        .log-entry.info {
+            border-left-color: #3B82F6;
+            background-color: rgba(59, 130, 246, 0.05);
+        }
+        .service-card {
+            transition: all 0.3s ease;
+        }
+        .service-card:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        }
+        .alert-banner {
+            animation: slideInDown 0.5s ease;
+        }
+        @keyframes slideInDown {
+            from { transform: translateY(-100%); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+        .metric-trend-up {
+            color: #10B981;
+        }
+        .metric-trend-down {
+            color: #EF4444;
+        }
+        .metric-trend-stable {
+            color: #6B7280;
+        }
+    </style>
+</head>
+<body class="font-claude text-claude-text min-h-screen">
+    <!-- Header -->
+    <header class="bg-white/80 backdrop-blur-md border-b border-gray-200 sticky top-0 z-50">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex items-center justify-between h-16">
+                <!-- Logo -->
+                <div class="flex items-center space-x-3">
+                    <div class="w-10 h-10 bg-gradient-to-br from-claude-orange to-orange-600 rounded-xl flex items-center justify-center">
+                        <i class="fas fa-chart-line text-white text-xl"></i>
+                    </div>
+                    <div>
+                        <h1 class="text-xl font-bold text-claude-text">系统监控</h1>
+                        <p class="text-xs text-gray-500">实时状态监控</p>
+                    </div>
+                </div>
+
+                <!-- Status & Controls -->
+                <div class="flex items-center space-x-6">
+                    <div class="flex items-center space-x-2">
+                        <div class="health-indicator healthy" id="systemHealthIndicator"></div>
+                        <span class="text-sm font-medium" id="systemHealthText">系统正常</span>
+                    </div>
+                    <div class="flex items-center space-x-2 text-sm text-gray-600">
+                        <i class="fas fa-sync-alt"></i>
+                        <span>自动刷新: <span id="autoRefreshStatus">开启</span></span>
+                        <label class="relative inline-flex items-center cursor-pointer ml-2">
+                            <input type="checkbox" id="autoRefreshToggle" class="sr-only peer" checked>
+                            <div class="w-8 h-4 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-claude-orange"></div>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- Navigation -->
+                <nav class="flex items-center space-x-6">
+                    <a href="config-manager.html" class="text-gray-600 hover:text-claude-orange transition-colors">
+                        <i class="fas fa-cog mr-2"></i>配置管理
+                    </a>
+                    <a href="admin.html" class="text-gray-600 hover:text-claude-orange transition-colors">
+                        <i class="fas fa-tachometer-alt mr-2"></i>管理面板
+                    </a>
+                    <div class="flex items-center space-x-2">
+                        <div class="w-8 h-8 bg-gradient-to-br from-claude-orange to-orange-600 rounded-full flex items-center justify-center">
+                            <i class="fas fa-user text-white text-sm"></i>
+                        </div>
+                        <span id="adminEmail" class="text-gray-700 text-sm">管理员</span>
+                    </div>
+                    <button id="logoutBtn" class="text-gray-600 hover:text-claude-orange transition-colors">退出</button>
+                </nav>
+            </div>
+        </div>
+    </header>
+
+    <!-- Alert Banner -->
+    <div id="alertBanner" class="hidden">
+        <div class="alert-banner bg-red-500 text-white px-4 py-3">
+            <div class="max-w-7xl mx-auto flex items-center justify-between">
+                <div class="flex items-center">
+                    <i class="fas fa-exclamation-triangle mr-3"></i>
+                    <span id="alertMessage">系统检测到异常</span>
+                </div>
+                <button id="dismissAlert" class="text-white hover:text-gray-200">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Content -->
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <!-- System Overview -->
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+            <div class="metric-card gradient-card rounded-2xl p-6 border border-white/20">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm text-gray-600">系统负载</p>
+                        <p class="text-2xl font-bold text-claude-text" id="systemLoad">-</p>
+                        <div class="flex items-center mt-1">
+                            <i class="fas fa-arrow-up text-xs metric-trend-up mr-1" id="loadTrend"></i>
+                            <span class="text-xs text-gray-500" id="loadTrendText">较上小时</span>
+                        </div>
+                    </div>
+                    <div class="w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center">
+                        <i class="fas fa-tachometer-alt text-blue-600 text-xl"></i>
+                    </div>
+                </div>
+            </div>
+            <div class="metric-card gradient-card rounded-2xl p-6 border border-white/20">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm text-gray-600">内存使用</p>
+                        <p class="text-2xl font-bold text-claude-text" id="memoryUsage">-</p>
+                        <div class="flex items-center mt-1">
+                            <i class="fas fa-arrow-down text-xs metric-trend-down mr-1" id="memoryTrend"></i>
+                            <span class="text-xs text-gray-500" id="memoryTrendText">较上小时</span>
+                        </div>
+                    </div>
+                    <div class="w-12 h-12 bg-green-100 rounded-xl flex items-center justify-center">
+                        <i class="fas fa-memory text-green-600 text-xl"></i>
+                    </div>
+                </div>
+            </div>
+            <div class="metric-card gradient-card rounded-2xl p-6 border border-white/20">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm text-gray-600">磁盘使用</p>
+                        <p class="text-2xl font-bold text-claude-text" id="diskUsage">-</p>
+                        <div class="flex items-center mt-1">
+                            <i class="fas fa-minus text-xs metric-trend-stable mr-1" id="diskTrend"></i>
+                            <span class="text-xs text-gray-500" id="diskTrendText">较上小时</span>
+                        </div>
+                    </div>
+                    <div class="w-12 h-12 bg-purple-100 rounded-xl flex items-center justify-center">
+                        <i class="fas fa-hdd text-purple-600 text-xl"></i>
+                    </div>
+                </div>
+            </div>
+            <div class="metric-card gradient-card rounded-2xl p-6 border border-white/20">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm text-gray-600">网络流量</p>
+                        <p class="text-2xl font-bold text-claude-text" id="networkTraffic">-</p>
+                        <div class="flex items-center mt-1">
+                            <i class="fas fa-arrow-up text-xs metric-trend-up mr-1" id="networkTrend"></i>
+                            <span class="text-xs text-gray-500" id="networkTrendText">较上小时</span>
+                        </div>
+                    </div>
+                    <div class="w-12 h-12 bg-orange-100 rounded-xl flex items-center justify-center">
+                        <i class="fas fa-network-wired text-orange-600 text-xl"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Service Status Grid -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8">
+            <!-- Services Health -->
+            <div class="lg:col-span-2">
+                <div class="gradient-card rounded-2xl p-6 border border-white/20">
+                    <div class="flex items-center justify-between mb-6">
+                        <h3 class="text-lg font-semibold">服务状态</h3>
+                        <button id="refreshServicesBtn" class="px-3 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors text-sm">
+                            <i class="fas fa-sync-alt mr-2"></i>刷新
+                        </button>
+                    </div>
+
+                    <div id="servicesList" class="space-y-4">
+                        <!-- Services will be populated here -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- System Info -->
+            <div class="space-y-6">
+                <!-- Quick Stats -->
+                <div class="gradient-card rounded-2xl p-6 border border-white/20">
+                    <h3 class="text-lg font-semibold mb-4">系统信息</h3>
+                    <div class="space-y-3 text-sm">
+                        <div class="flex justify-between">
+                            <span class="text-gray-600">运行时间:</span>
+                            <span class="font-medium" id="systemUptime">-</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-600">CPU核心:</span>
+                            <span class="font-medium" id="cpuCores">-</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-600">总内存:</span>
+                            <span class="font-medium" id="totalMemory">-</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-600">操作系统:</span>
+                            <span class="font-medium" id="operatingSystem">-</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-600">服务器时间:</span>
+                            <span class="font-medium" id="serverTime">-</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Performance Ring -->
+                <div class="gradient-card rounded-2xl p-6 border border-white/20">
+                    <h3 class="text-lg font-semibold mb-4">性能概览</h3>
+                    <div class="flex items-center justify-center">
+                        <div class="relative w-32 h-32">
+                            <svg class="progress-ring w-32 h-32">
+                                <circle cx="64" cy="64" r="56" stroke="#E5E7EB" stroke-width="8" fill="transparent"></circle>
+                                <circle cx="64" cy="64" r="56" stroke="#FF8C47" stroke-width="8" fill="transparent" 
+                                        stroke-dasharray="352" stroke-dashoffset="0" class="progress-ring-circle" id="performanceRing"></circle>
+                            </svg>
+                            <div class="absolute inset-0 flex items-center justify-center">
+                                <div class="text-center">
+                                    <div class="text-2xl font-bold text-claude-text" id="performanceScore">-</div>
+                                    <div class="text-xs text-gray-500">综合得分</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="mt-4 space-y-2 text-sm">
+                        <div class="flex items-center justify-between">
+                            <span class="text-gray-600">CPU使用率:</span>
+                            <span class="font-medium" id="cpuUsage">-</span>
+                        </div>
+                        <div class="flex items-center justify-between">
+                            <span class="text-gray-600">响应时间:</span>
+                            <span class="font-medium" id="responseTime">-</span>
+                        </div>
+                        <div class="flex items-center justify-between">
+                            <span class="text-gray-600">并发连接:</span>
+                            <span class="font-medium" id="activeConnections">-</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Charts and Logs -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            <!-- Performance Charts -->
+            <div class="gradient-card rounded-2xl p-6 border border-white/20">
+                <div class="flex items-center justify-between mb-6">
+                    <h3 class="text-lg font-semibold">性能趋势</h3>
+                    <select id="chartTimeRange" class="px-3 py-2 border border-gray-200 rounded-lg text-sm">
+                        <option value="1h">最近1小时</option>
+                        <option value="6h">最近6小时</option>
+                        <option value="24h">最近24小时</option>
+                        <option value="7d">最近7天</option>
+                    </select>
+                </div>
+                
+                <div class="chart-container">
+                    <canvas id="performanceChart" width="400" height="200"></canvas>
+                </div>
+                
+                <div class="mt-4 flex items-center justify-around text-sm">
+                    <div class="flex items-center">
+                        <div class="w-3 h-3 bg-blue-500 rounded-full mr-2"></div>
+                        <span class="text-gray-600">CPU使用率</span>
+                    </div>
+                    <div class="flex items-center">
+                        <div class="w-3 h-3 bg-green-500 rounded-full mr-2"></div>
+                        <span class="text-gray-600">内存使用率</span>
+                    </div>
+                    <div class="flex items-center">
+                        <div class="w-3 h-3 bg-purple-500 rounded-full mr-2"></div>
+                        <span class="text-gray-600">磁盘I/O</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- System Logs -->
+            <div class="gradient-card rounded-2xl p-6 border border-white/20">
+                <div class="flex items-center justify-between mb-6">
+                    <h3 class="text-lg font-semibold">系统日志</h3>
+                    <div class="flex items-center space-x-2">
+                        <select id="logLevel" class="px-3 py-2 border border-gray-200 rounded-lg text-sm">
+                            <option value="">所有级别</option>
+                            <option value="error">错误</option>
+                            <option value="warning">警告</option>
+                            <option value="info">信息</option>
+                        </select>
+                        <button id="refreshLogsBtn" class="px-3 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors text-sm">
+                            <i class="fas fa-sync-alt"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <div id="systemLogs" class="space-y-2 max-h-80 overflow-y-auto">
+                    <!-- Logs will be populated here -->
+                </div>
+
+                <div class="mt-4 text-center">
+                    <button id="loadMoreLogsBtn" class="px-4 py-2 text-claude-orange hover:text-orange-600 text-sm">
+                        <i class="fas fa-chevron-down mr-2"></i>加载更多日志
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Database and Email Status -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 mt-8">
+            <!-- Database Status -->
+            <div class="gradient-card rounded-2xl p-6 border border-white/20">
+                <div class="flex items-center justify-between mb-6">
+                    <h3 class="text-lg font-semibold">数据库状态</h3>
+                    <button id="testDatabaseBtn" class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors text-sm">
+                        <i class="fas fa-plug mr-2"></i>测试连接
+                    </button>
+                </div>
+
+                <div class="space-y-4">
+                    <div class="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+                        <div class="flex items-center">
+                            <div class="health-indicator healthy" id="dbHealthIndicator"></div>
+                            <div>
+                                <p class="font-medium text-sm">PostgreSQL</p>
+                                <p class="text-xs text-gray-500" id="dbConnectionInfo">连接正常</p>
+                            </div>
+                        </div>
+                        <div class="text-right text-sm">
+                            <p class="font-medium" id="dbResponseTime">12ms</p>
+                            <p class="text-xs text-gray-500">响应时间</p>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-4 text-sm">
+                        <div class="bg-gray-50 rounded-lg p-3">
+                            <p class="text-gray-600">活跃连接</p>
+                            <p class="text-lg font-semibold" id="dbActiveConnections">-</p>
+                        </div>
+                        <div class="bg-gray-50 rounded-lg p-3">
+                            <p class="text-gray-600">最大连接</p>
+                            <p class="text-lg font-semibold" id="dbMaxConnections">-</p>
+                        </div>
+                        <div class="bg-gray-50 rounded-lg p-3">
+                            <p class="text-gray-600">查询/秒</p>
+                            <p class="text-lg font-semibold" id="dbQueriesPerSecond">-</p>
+                        </div>
+                        <div class="bg-gray-50 rounded-lg p-3">
+                            <p class="text-gray-600">缓存命中率</p>
+                            <p class="text-lg font-semibold" id="dbCacheHitRatio">-</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Email Service Status -->
+            <div class="gradient-card rounded-2xl p-6 border border-white/20">
+                <div class="flex items-center justify-between mb-6">
+                    <h3 class="text-lg font-semibold">邮件服务状态</h3>
+                    <button id="testEmailBtn" class="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors text-sm">
+                        <i class="fas fa-envelope mr-2"></i>发送测试
+                    </button>
+                </div>
+
+                <div class="space-y-4">
+                    <div class="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+                        <div class="flex items-center">
+                            <div class="health-indicator warning" id="emailHealthIndicator"></div>
+                            <div>
+                                <p class="font-medium text-sm">SMTP服务</p>
+                                <p class="text-xs text-gray-500" id="emailConnectionInfo">配置待完善</p>
+                            </div>
+                        </div>
+                        <div class="text-right text-sm">
+                            <p class="font-medium" id="emailResponseTime">-</p>
+                            <p class="text-xs text-gray-500">响应时间</p>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-4 text-sm">
+                        <div class="bg-gray-50 rounded-lg p-3">
+                            <p class="text-gray-600">今日发送</p>
+                            <p class="text-lg font-semibold" id="emailsSentToday">-</p>
+                        </div>
+                        <div class="bg-gray-50 rounded-lg p-3">
+                            <p class="text-gray-600">发送成功率</p>
+                            <p class="text-lg font-semibold" id="emailSuccessRate">-</p>
+                        </div>
+                        <div class="bg-gray-50 rounded-lg p-3">
+                            <p class="text-gray-600">队列长度</p>
+                            <p class="text-lg font-semibold" id="emailQueueLength">-</p>
+                        </div>
+                        <div class="bg-gray-50 rounded-lg p-3">
+                            <p class="text-gray-600">最后发送</p>
+                            <p class="text-lg font-semibold" id="lastEmailSent">-</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Test Email Modal -->
+    <div id="testEmailModal" class="fixed inset-0 bg-black bg-opacity-50 hidden z-50 backdrop-blur-sm">
+        <div class="flex items-center justify-center min-h-screen p-4">
+            <div class="bg-white rounded-2xl max-w-md w-full">
+                <div class="p-6">
+                    <div class="flex items-center justify-between mb-6">
+                        <h2 class="text-xl font-bold text-claude-text">发送测试邮件</h2>
+                        <button id="closeTestEmailModal" class="text-gray-500 hover:text-gray-700">
+                            <i class="fas fa-times text-xl"></i>
+                        </button>
+                    </div>
+                    
+                    <form id="testEmailForm" class="space-y-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">收件人邮箱</label>
+                            <input type="email" id="testEmailRecipient" class="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-claude-orange focus:border-transparent" placeholder="test@example.com" required>
+                        </div>
+                        
+                        <div class="flex space-x-3 pt-4">
+                            <button type="button" id="cancelTestEmail" class="flex-1 px-4 py-3 border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 transition-colors">
+                                取消
+                            </button>
+                            <button type="submit" id="sendTestEmailBtn" class="flex-1 px-4 py-3 bg-claude-orange text-white rounded-xl hover:bg-orange-600 transition-colors">
+                                <span id="sendTestEmailText">发送邮件</span>
+                                <div id="sendTestEmailSpinner" class="hidden spinner inline-block ml-2"></div>
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="config.js"></script>
+    <script src="status-monitor.js"></script>
+</body>
+</html>

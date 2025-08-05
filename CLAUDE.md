@@ -98,9 +98,17 @@ CREATE SCHEMA public;
 ### Frontend Files
 - `index.html` - Main plugin marketplace interface
 - `admin.html` - Admin management panel
+- `config-manager.html` - Configuration management interface
+- `backup-manager.html` - Database backup management interface
+- `status-monitor.html` - System status monitoring interface
+- `config-history.html` - Configuration history and rollback interface
 - `app.js` - Main application logic
 - `admin.js` - Admin panel functionality
-- `config.js` - Frontend configuration
+- `config-manager.js` - Configuration management logic
+- `backup-manager.js` - Backup management logic
+- `status-monitor.js` - System monitoring logic
+- `config-history.js` - Configuration history logic
+- `config.js` - Frontend configuration and API settings
 - `proxy_server.py` - Development proxy for CORS handling
 
 ## Configuration
@@ -153,11 +161,45 @@ RUST_BACKTRACE=1
 - `GET /api/v1/plugins/:id/download` - Download plugin file
 - `POST /api/v1/plugins/:id/ratings` - Create plugin rating
 
-### Admin
+### Admin Management
 - `GET /api/v1/admin/dashboard` - Dashboard statistics
-- `GET /api/v1/admin/users` - User management
-- `GET /api/v1/admin/plugins` - Plugin management
+- `GET /api/v1/admin/users` - User management with pagination
+- `POST /api/v1/admin/users/update-email` - Update user email address
+- `POST /api/v1/admin/users/ban` - Ban user account
+- `POST /api/v1/admin/users/unban` - Unban user account
+- `GET /api/v1/admin/plugins` - Plugin management with pagination
+- `POST /api/v1/admin/plugins/delete` - Delete plugin
+- `GET /api/v1/admin/login-activities` - User login activity history
+- `GET /api/v1/admin/recent-logins` - Recent login activities
 - `POST /api/v1/admin/sql/execute` - Execute SQL queries
+
+### Configuration Management (New)
+- `GET /api/v1/admin/config` - Get current configuration
+- `POST /api/v1/admin/config/update` - Update configuration
+- `POST /api/v1/admin/config/test` - Test configuration (SMTP, DB, etc.)
+- `POST /api/v1/admin/config/rollback` - Rollback to previous configuration
+- `GET /api/v1/admin/config/history` - Get configuration history
+- `POST /api/v1/admin/config/snapshot` - Create configuration snapshot
+- `POST /api/v1/admin/config/compare` - Compare configuration versions
+
+### Backup Management (New)
+- `GET /api/v1/admin/backup/list` - List all backups
+- `POST /api/v1/admin/backup/create` - Create new backup
+- `POST /api/v1/admin/backup/restore` - Restore from backup
+- `DELETE /api/v1/admin/backup/:id` - Delete backup
+- `GET /api/v1/admin/backup/:id/download` - Download backup file
+- `GET /api/v1/admin/backup/status` - Get backup operation status
+- `POST /api/v1/admin/backup/schedule` - Configure scheduled backups
+- `GET /api/v1/admin/backup/schedules` - List backup schedules
+
+### System Monitoring (New)
+- `GET /api/v1/admin/monitor/system` - System metrics (CPU, memory, disk)
+- `GET /api/v1/admin/monitor/services` - Service health status
+- `GET /api/v1/admin/monitor/database` - Database status and metrics
+- `GET /api/v1/admin/monitor/smtp` - SMTP service status
+- `GET /api/v1/admin/monitor/logs` - System logs with filtering
+- `POST /api/v1/admin/monitor/test/email` - Send test email
+- `POST /api/v1/admin/monitor/test/database` - Test database connection
 
 ### Health & Monitoring
 - `GET /api/v1/health` - Health check endpoint
@@ -177,6 +219,10 @@ Main tables:
 Access test pages:
 - Frontend: http://localhost:8080
 - Admin panel: http://localhost:8080/admin.html
+- Configuration manager: http://localhost:8080/config-manager.html
+- Backup manager: http://localhost:8080/backup-manager.html
+- Status monitor: http://localhost:8080/status-monitor.html
+- Config history: http://localhost:8080/config-history.html
 - Health check: http://localhost:3000/api/v1/health
 
 ### Development Workflow
@@ -204,6 +250,253 @@ Access test pages:
 - Vanilla JavaScript - No additional frameworks
 - Font Awesome - Icon library
 
+## API Request/Response Examples
+
+### Configuration Management
+
+#### Get Current Configuration
+```bash
+GET /api/v1/admin/config
+Authorization: Bearer <token>
+
+Response:
+{
+  "success": true,
+  "data": {
+    "smtp": {
+      "enabled": false,
+      "host": "smtp.gmail.com",
+      "port": 587,
+      "username": "test@example.com",
+      "password": "***",
+      "from_address": "noreply@geektools.dev",
+      "from_name": "GeekTools",
+      "use_tls": true
+    },
+    "database": {
+      "max_connections": 10,
+      "connect_timeout": 30
+    },
+    "server": {
+      "host": "0.0.0.0",
+      "port": 3000,
+      "jwt_access_token_expires_in": 3600,
+      "jwt_refresh_token_expires_in": 604800
+    },
+    "storage": {
+      "upload_path": "./uploads",
+      "max_file_size": 104857600,
+      "use_cdn": false,
+      "cdn_base_url": "https://cdn.geektools.dev"
+    }
+  }
+}
+```
+
+#### Update Configuration
+```bash
+POST /api/v1/admin/config/update
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "config_type": "smtp",
+  "config_data": {
+    "enabled": true,
+    "host": "smtp.office365.com",
+    "port": 587,
+    "username": "admin@company.com",
+    "password": "new-password",
+    "use_tls": true
+  }
+}
+
+Response:
+{
+  "success": true,
+  "message": "Configuration updated successfully",
+  "data": {
+    "version": "v2.1.4",
+    "applied_at": "2024-01-20T15:30:00Z"
+  }
+}
+```
+
+### Backup Management
+
+#### Create Backup
+```bash
+POST /api/v1/admin/backup/create
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "name": "manual_backup_2024_01_20",
+  "description": "Pre-upgrade backup",
+  "type": "full",
+  "compress": true
+}
+
+Response:
+{
+  "success": true,
+  "data": {
+    "backup_id": "backup_123",
+    "status": "started",
+    "estimated_duration": 180
+  }
+}
+```
+
+#### List Backups
+```bash
+GET /api/v1/admin/backup/list?page=1&limit=20
+Authorization: Bearer <token>
+
+Response:
+{
+  "success": true,
+  "data": {
+    "backups": [
+      {
+        "id": "backup_123",
+        "name": "manual_backup_2024_01_20",
+        "description": "Pre-upgrade backup",
+        "type": "full",
+        "status": "completed",
+        "size": 157286400,
+        "created_at": "2024-01-20T14:30:00Z",
+        "created_by": "admin@company.com",
+        "file_path": "/backups/backup_123.sql.gz"
+      }
+    ],
+    "total_count": 15,
+    "page": 1,
+    "limit": 20
+  }
+}
+```
+
+### System Monitoring
+
+#### Get System Metrics
+```bash
+GET /api/v1/admin/monitor/system
+Authorization: Bearer <token>
+
+Response:
+{
+  "success": true,
+  "data": {
+    "cpu": {
+      "usage_percent": 25.3,
+      "cores": 4,
+      "load_average": [0.65, 0.72, 0.80]
+    },
+    "memory": {
+      "total_gb": 16,
+      "used_gb": 11.2,
+      "usage_percent": 70.0,
+      "available_gb": 4.8
+    },
+    "disk": {
+      "total_gb": 500,
+      "used_gb": 229,
+      "usage_percent": 45.8,
+      "free_gb": 271
+    },
+    "network": {
+      "bytes_sent": 1048576000,
+      "bytes_recv": 2097152000,
+      "packets_sent": 1000000,
+      "packets_recv": 1500000
+    },
+    "uptime_seconds": 2847392,
+    "timestamp": "2024-01-20T15:30:00Z"
+  }
+}
+```
+
+#### Get Service Status
+```bash
+GET /api/v1/admin/monitor/services
+Authorization: Bearer <token>
+
+Response:
+{
+  "success": true,
+  "data": {
+    "services": [
+      {
+        "name": "web_server",
+        "status": "healthy",
+        "response_time_ms": 12,
+        "uptime_percent": 99.9,
+        "last_check": "2024-01-20T15:29:45Z",
+        "details": {
+          "port": 3000,
+          "active_connections": 47
+        }
+      },
+      {
+        "name": "database",
+        "status": "healthy",
+        "response_time_ms": 8,
+        "uptime_percent": 99.8,
+        "last_check": "2024-01-20T15:29:45Z",
+        "details": {
+          "active_connections": 15,
+          "max_connections": 100,
+          "queries_per_second": 45.7
+        }
+      },
+      {
+        "name": "smtp",
+        "status": "warning",
+        "response_time_ms": null,
+        "uptime_percent": 0,
+        "last_check": "2024-01-20T15:29:45Z",
+        "details": {
+          "configured": false,
+          "last_email_sent": null
+        }
+      }
+    ]
+  }
+}
+```
+
+## Frontend Configuration
+
+### config.js Settings
+The frontend uses `config.js` for dynamic configuration:
+
+```javascript
+window.GeekToolsConfig = {
+  // API base URL - automatically detected or manual override
+  apiBaseUrl: '/api/v1',
+  
+  // Admin panel settings
+  admin: {
+    autoRefreshInterval: 30000,  // 30 seconds
+    config: {
+      autoBackupOnChange: true,
+      maxVersionHistory: 50
+    },
+    backup: {
+      defaultRetentionDays: 30,
+      maxBackupSize: 1024,
+      defaultScheduleTime: '02:00'
+    },
+    monitor: {
+      refreshInterval: 30000,
+      chartDataPoints: 50,
+      logLimit: 50
+    }
+  }
+};
+```
+
 ## Production Deployment
 
 For production deployment:
@@ -213,3 +506,5 @@ For production deployment:
 4. Use reverse proxy (Nginx) for static file serving
 5. Enable HTTPS/SSL certificates
 6. Set up proper backup procedures for database and uploads
+7. Configure monitoring alerts for system health
+8. Set up log rotation and retention policies

@@ -3,6 +3,9 @@ pub mod plugins;
 pub mod search;
 pub mod health;
 pub mod admin;
+pub mod config;
+pub mod backup;
+pub mod monitoring;
 
 use axum::{
     http::StatusCode,

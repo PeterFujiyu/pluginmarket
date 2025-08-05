@@ -13,6 +13,10 @@ PORT = 8080
 BACKEND_URL = os.getenv('BACKEND_URL', 'http://localhost:3000')
 
 class ProxyHandler(http.server.SimpleHTTPRequestHandler):
+    def log_message(self, format, *args):
+        # Override to reduce verbose logging, only log errors
+        if 'error' in format.lower() or 'exception' in format.lower():
+            super().log_message(format, *args)
     def do_GET(self):
         if self.path.startswith('/api/'):
             self.proxy_request()
@@ -86,15 +90,42 @@ class ProxyHandler(http.server.SimpleHTTPRequestHandler):
                 # Copy response body
                 self.wfile.write(response.read())
                 
+        except BrokenPipeError:
+            # Client disconnected, silently ignore
+            print(f"Client disconnected during request to {self.path}")
+        except ConnectionResetError:
+            # Connection reset by client, silently ignore
+            print(f"Connection reset during request to {self.path}")
         except Exception as e:
             print(f"Proxy error: {e}")
-            self.send_error(500, f"Proxy error: {str(e)}")
+            try:
+                self.send_error(500, f"Proxy error: {str(e)}")
+            except (BrokenPipeError, ConnectionResetError):
+                # Client already disconnected, can't send error response
+                pass
 
 if __name__ == "__main__":
     os.chdir(os.path.dirname(os.path.abspath(__file__)))
     
-    with socketserver.TCPServer(("", PORT), ProxyHandler) as httpd:
+    # Custom TCPServer that handles errors gracefully
+    class RobustTCPServer(socketserver.TCPServer):
+        def handle_error(self, request, client_address):
+            # Suppress BrokenPipeError and ConnectionResetError
+            import sys
+            exc_type, exc_value, exc_traceback = sys.exc_info()
+            if exc_type in (BrokenPipeError, ConnectionResetError):
+                print(f"Client {client_address} disconnected")
+                return
+            # Log other errors normally
+            super().handle_error(request, client_address)
+    
+    with RobustTCPServer(("", PORT), ProxyHandler) as httpd:
+        httpd.allow_reuse_address = True
         print(f"Serving at http://localhost:{PORT}")
         print(f"Proxying /api/* requests to {BACKEND_URL}")
         print("Press Ctrl+C to stop")
-        httpd.serve_forever()
+        try:
+            httpd.serve_forever()
+        except KeyboardInterrupt:
+            print("\nShutting down proxy server...")
+            httpd.shutdown()
