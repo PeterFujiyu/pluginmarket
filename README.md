@@ -19,7 +19,7 @@
 - 🚀 **高性能**: 基于 Rust + Axum 构建，内存安全且高并发
 - 🔐 **安全认证**: JWT + 邮箱验证码，支持SMTP邮件发送
 - 📦 **插件管理**: 完整的插件上传、下载、搜索、评分功能
-- 🗄️ **数据库**: PostgreSQL支持，自动迁移和连接池
+- 🗄️ **数据库**: SQLite支持，轻量化部署，自动迁移和连接池
 - 🔧 **管理功能**: 内置管理员面板，用户管理和系统监控
 - 🐳 **容器化**: Docker和Docker Compose支持
 - 📈 **监控**: 健康检查、指标统计和结构化日志
@@ -57,7 +57,7 @@ plugin_server/
 - **Rust**: 系统编程语言，内存安全
 - **Axum**: 异步 Web 框架
 - **SQLx**: 类型安全的 SQL 查询
-- **PostgreSQL**: 生产级关系数据库
+- **SQLite**: 轻量级嵌入式数据库，零配置部署
 - **JWT**: 无状态身份认证
 - **Lettre**: SMTP 邮件发送
 - **Docker**: 容器化部署
@@ -106,8 +106,8 @@ window.GeekToolsConfig = {
 
 #### 后端配置 (`server/.env`)
 ```bash
-# 数据库配置
-DATABASE_URL=postgres://postgres:password@localhost/marketplace
+# 数据库配置 (SQLite)
+DATABASE_URL=sqlite://marketplace.db
 
 # JWT配置
 JWT_SECRET=your-super-secret-jwt-key

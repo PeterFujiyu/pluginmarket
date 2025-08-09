@@ -1,9 +1,7 @@
 use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize, Deserializer, Serializer};
+use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
-use sqlx::types::BigDecimal;
 use validator::Validate;
-use std::str::FromStr;
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct Plugin {
@@ -15,8 +13,7 @@ pub struct Plugin {
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub downloads: i32,
-    #[serde(serialize_with = "serialize_bigdecimal", deserialize_with = "deserialize_bigdecimal")]
-    pub rating: BigDecimal,
+    pub rating: f64,
     pub status: PluginStatus,
     pub min_geektools_version: Option<String>,
     pub homepage_url: Option<String>,
@@ -123,8 +120,7 @@ pub struct PluginSummary {
     pub author: String,
     pub current_version: String,
     pub downloads: i32,
-    #[serde(serialize_with = "serialize_bigdecimal", deserialize_with = "deserialize_bigdecimal")]
-    pub rating: BigDecimal,
+    pub rating: f64,
     pub tags: Vec<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -138,8 +134,7 @@ pub struct PluginDetailResponse {
     pub author: String,
     pub current_version: String,
     pub downloads: i32,
-    #[serde(serialize_with = "serialize_bigdecimal", deserialize_with = "deserialize_bigdecimal")]
-    pub rating: BigDecimal,
+    pub rating: f64,
     pub tags: Vec<String>,
     pub min_geektools_version: Option<String>,
     pub homepage_url: Option<String>,
@@ -208,19 +203,3 @@ impl Default for PluginStatus {
     }
 }
 
-// Custom serde functions for BigDecimal
-fn serialize_bigdecimal<S>(value: &BigDecimal, serializer: S) -> Result<S::Ok, S::Error>
-where
-    S: Serializer,
-{
-    let f64_value = value.to_string().parse::<f64>().unwrap_or(0.0);
-    serializer.serialize_f64(f64_value)
-}
-
-fn deserialize_bigdecimal<'de, D>(deserializer: D) -> Result<BigDecimal, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let f64_value = f64::deserialize(deserializer)?;
-    BigDecimal::from_str(&f64_value.to_string()).map_err(serde::de::Error::custom)
-}

@@ -47,7 +47,7 @@ docs/
 
 - **项目名称**: GeekTools Plugin Marketplace
 - **版本**: 1.0.0
-- **技术栈**: Rust (Axum) + PostgreSQL + HTML/JS/CSS
+- **技术栈**: Rust (Axum) + SQLite + HTML/JS/CSS
 - **许可证**: MIT
 - **文档更新日期**: 2024-08-01
 

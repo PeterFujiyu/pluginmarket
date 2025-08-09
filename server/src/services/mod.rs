@@ -4,7 +4,7 @@ pub mod storage;
 pub mod admin;
 pub mod smtp;
 
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use std::sync::Arc;
 
 use crate::utils::config::Config;
@@ -16,7 +16,7 @@ use smtp::SmtpService;
 
 #[derive(Clone)]
 pub struct AppState {
-    pub db_pool: PgPool,
+    pub db_pool: SqlitePool,
     pub config: Arc<Config>,
     pub auth_service: Arc<AuthService>,
     pub plugin_service: Arc<PluginService>,
@@ -26,7 +26,7 @@ pub struct AppState {
 }
 
 impl AppState {
-    pub async fn new(db_pool: PgPool, config: Config) -> anyhow::Result<Self> {
+    pub async fn new(db_pool: SqlitePool, config: Config) -> anyhow::Result<Self> {
         let config = Arc::new(config);
         let storage_service = Arc::new(StorageService::new(config.clone())?);
         let auth_service = Arc::new(AuthService::new(db_pool.clone(), config.clone()));

@@ -107,7 +107,7 @@ pub async fn get_user_from_token(
         .map_err(|_| AppError::Unauthorized("Invalid user ID in token".to_string()))?;
 
     // Get user from database
-    let user = sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = $1 AND is_active = true")
+    let user = sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = ? AND is_active = true")
         .bind(user_id)
         .fetch_optional(auth_service.get_db_pool())
         .await

@@ -40,7 +40,7 @@ CPU: 1核心 (推荐2核心+)
 ```
 操作系统: Linux (Ubuntu 20.04+, CentOS 8+) / macOS / Windows
 Rust: 1.70+
-PostgreSQL: 12+
+SQLite: 3.35+ (内嵌支持，无需单独安装)
 Python: 3.7+ (用于代理服务器)
 ```
 
@@ -66,9 +66,10 @@ HTTPS: SSL证书
 
 ```bash
 # 数据库配置
-DATABASE_URL=postgres://username:password@localhost:5432/marketplace
+DATABASE_URL=sqlite:./data/marketplace.db
 DATABASE_MAX_CONNECTIONS=10
 DATABASE_POOL_TIMEOUT=30
+DATABASE_BUSY_TIMEOUT=5000              # SQLite忙超时时间(毫秒)
 
 # JWT认证配置
 JWT_SECRET=your-super-secret-jwt-key-change-this-in-production-environment
@@ -113,6 +114,12 @@ FEATURE_EMAIL_VERIFICATION=true       # 启用邮箱验证
 FEATURE_ADMIN_PANEL=true              # 启用管理面板
 FEATURE_METRICS=true                  # 启用指标收集
 
+# SQLite特定配置
+SQLITE_BUSY_TIMEOUT=5000              # SQLite忙超时时间(毫秒)
+SQLITE_WAL_MODE=true                  # 启用WAL模式
+SQLITE_CACHE_SIZE=64000               # 缓存大小(KB)
+SQLITE_MMAP_SIZE=268435456            # 内存映射大小(字节)
+
 # 缓存配置
 REDIS_URL=redis://localhost:6379     # 可选Redis缓存
 CACHE_TTL=300                         # 缓存过期时间(秒)
@@ -135,7 +142,7 @@ BACKUP_STORAGE_PATH=./backups         # 备份存储路径
 ```bash
 # 开发环境配置
 RUST_LOG=debug
-DATABASE_URL=postgres://dev_user:dev_pass@localhost:5432/marketplace_dev
+DATABASE_URL=sqlite:./data/marketplace_dev.db
 SMTP_ENABLED=false                    # 开发环境禁用邮件
 CORS_ORIGINS=http://localhost:8080,http://127.0.0.1:8080
 FEATURE_EMAIL_VERIFICATION=false     # 开发环境跳过邮箱验证
@@ -146,7 +153,7 @@ STORAGE_UPLOAD_PATH=./dev_uploads
 ```bash
 # 测试环境配置
 RUST_LOG=warn
-DATABASE_URL=postgres://test_user:test_pass@localhost:5432/marketplace_test
+DATABASE_URL=sqlite:./data/marketplace_test.db
 SMTP_ENABLED=false
 FEATURE_REGISTRATION=true
 FEATURE_EMAIL_VERIFICATION=false
@@ -157,7 +164,7 @@ STORAGE_UPLOAD_PATH=./test_uploads
 ```bash
 # 生产环境配置
 RUST_LOG=info
-DATABASE_URL=postgres://prod_user:secure_password@db.example.com:5432/marketplace_prod
+DATABASE_URL=sqlite:/opt/geektools/data/marketplace_prod.db
 SMTP_ENABLED=true
 SMTP_HOST=smtp.example.com
 SMTP_USERNAME=noreply@example.com
@@ -172,18 +179,20 @@ METRICS_ENABLED=true
 
 ### 1. 数据库安全
 
-```sql
--- 创建专用数据库用户
-CREATE USER marketplace_user WITH PASSWORD 'secure_random_password';
+```bash
+# 创建数据库目录并设置权限
+sudo mkdir -p /opt/geektools/data
+sudo chown geektools:geektools /opt/geektools/data
+sudo chmod 750 /opt/geektools/data
 
--- 授予必要权限
-GRANT CONNECT ON DATABASE marketplace TO marketplace_user;
-GRANT USAGE ON SCHEMA public TO marketplace_user;
-GRANT CREATE ON SCHEMA public TO marketplace_user;
+# 设置数据库文件权限
+sudo chmod 640 /opt/geektools/data/marketplace.db
+sudo chown geektools:geektools /opt/geektools/data/marketplace.db
 
--- 限制权限
-REVOKE ALL ON DATABASE postgres FROM marketplace_user;
-REVOKE CREATE ON SCHEMA public FROM PUBLIC;
+# 确保只有应用用户可以访问数据库
+sudo chgrp geektools /opt/geektools/data/marketplace.db
+sudo chmod g+rw /opt/geektools/data/marketplace.db
+sudo chmod o-rwx /opt/geektools/data/marketplace.db
 ```
 
 ### 2. 文件系统安全
@@ -193,9 +202,10 @@ REVOKE CREATE ON SCHEMA public FROM PUBLIC;
 sudo useradd -r -s /bin/false geektools
 
 # 设置目录权限
-sudo mkdir -p /opt/geektools/{uploads,logs,backups}
+sudo mkdir -p /opt/geektools/{data,uploads,logs,backups}
 sudo chown -R geektools:geektools /opt/geektools
 sudo chmod 750 /opt/geektools
+sudo chmod 750 /opt/geektools/data
 sudo chmod 755 /opt/geektools/uploads
 sudo chmod 750 /opt/geektools/logs
 sudo chmod 750 /opt/geektools/backups
@@ -320,9 +330,15 @@ check_service_status() {
 
 # 检查数据库连接
 check_database() {
-    if ! pg_isready -h localhost -p 5432 -U marketplace_user > /dev/null 2>&1; then
-        echo "$(date): Database is not responding!" | tee -a $LOG_FILE
-        echo "Database connection failed!" | mail -s "Database Alert" $ALERT_EMAIL
+    if ! sqlite3 /opt/geektools/data/marketplace.db "SELECT 1;" > /dev/null 2>&1; then
+        echo "$(date): Database is not accessible!" | tee -a $LOG_FILE
+        echo "SQLite database connection failed!" | mail -s "Database Alert" $ALERT_EMAIL
+    fi
+    
+    # 检查数据库文件权限
+    if [ ! -r /opt/geektools/data/marketplace.db ]; then
+        echo "$(date): Database file is not readable!" | tee -a $LOG_FILE
+        echo "Database file permission issue!" | mail -s "Database Alert" $ALERT_EMAIL
     fi
 }
 
@@ -398,13 +414,14 @@ scrape_configs:
     scrape_interval: 5s
     metrics_path: /metrics
 
-  - job_name: 'postgres'
-    static_configs:
-      - targets: ['localhost:9187']
-
   - job_name: 'node'
     static_configs:
       - targets: ['localhost:9100']
+    
+  - job_name: 'sqlite_exporter'
+    static_configs:
+      - targets: ['localhost:9191']
+    scrape_interval: 30s
 ```
 
 ## 备份策略
@@ -418,32 +435,46 @@ scrape_configs:
 # backup_database.sh
 
 BACKUP_DIR="/opt/geektools/backups"
-DB_NAME="marketplace"
-DB_USER="marketplace_user"
+DB_FILE="/opt/geektools/data/marketplace.db"
 DATE=$(date +%Y%m%d_%H%M%S)
-BACKUP_FILE="$BACKUP_DIR/db_backup_$DATE.sql.gz"
+BACKUP_FILE="$BACKUP_DIR/db_backup_$DATE.db"
 
 # 创建备份目录
 mkdir -p $BACKUP_DIR
 
-# 执行备份
-pg_dump -U $DB_USER -h localhost $DB_NAME | gzip > $BACKUP_FILE
+# 方法1: 使用SQLite内置备份命令 (推荐)
+sqlite3 $DB_FILE ".backup $BACKUP_FILE"
+
+# 方法2: 文件复制备份 (需要确保数据库不在使用中)
+# cp $DB_FILE $BACKUP_FILE
 
 # 检查备份是否成功
-if [ ${PIPESTATUS[0]} -eq 0 ]; then
+if [ $? -eq 0 ]; then
     echo "$(date): Database backup successful: $BACKUP_FILE"
     
-    # 删除30天前的备份
-    find $BACKUP_DIR -name "db_backup_*.sql.gz" -mtime +30 -delete
+    # 压缩备份文件
+    gzip $BACKUP_FILE
+    COMPRESSED_BACKUP="${BACKUP_FILE}.gz"
     
-    # 验证备份文件
-    if ! gzip -t $BACKUP_FILE; then
-        echo "$(date): Backup file is corrupted: $BACKUP_FILE"
+    # 删除30天前的备份
+    find $BACKUP_DIR -name "db_backup_*.db.gz" -mtime +30 -delete
+    
+    # 验证备份文件完整性
+    if ! gzip -t $COMPRESSED_BACKUP; then
+        echo "$(date): Backup file is corrupted: $COMPRESSED_BACKUP"
+        exit 1
+    fi
+    
+    # 验证SQLite数据库完整性
+    if gunzip -c $COMPRESSED_BACKUP | sqlite3 ":memory:" "PRAGMA integrity_check;" > /dev/null 2>&1; then
+        echo "$(date): Backup integrity check passed"
+    else
+        echo "$(date): Backup integrity check failed!"
         exit 1
     fi
     
     # 记录备份大小
-    BACKUP_SIZE=$(du -h $BACKUP_FILE | cut -f1)
+    BACKUP_SIZE=$(du -h $COMPRESSED_BACKUP | cut -f1)
     echo "$(date): Backup size: $BACKUP_SIZE"
     
 else
@@ -539,13 +570,22 @@ ls -la /opt/geektools/
 #### 数据库连接失败
 ```bash
 # 测试数据库连接
-pg_isready -h localhost -p 5432 -U marketplace_user
+sqlite3 /opt/geektools/data/marketplace.db "SELECT 1;"
 
-# 检查数据库日志
-sudo tail -f /var/log/postgresql/postgresql-*.log
+# 检查数据库文件状态
+ls -la /opt/geektools/data/marketplace.db
+
+# 检查数据库完整性
+sqlite3 /opt/geektools/data/marketplace.db "PRAGMA integrity_check;"
+
+# 检查数据库是否被锁定
+sqlite3 /opt/geektools/data/marketplace.db "PRAGMA lock_status;"
 
 # 验证连接字符串
 echo $DATABASE_URL
+
+# 检查数据库文件权限
+stat /opt/geektools/data/marketplace.db
 ```
 
 #### 上传功能异常
@@ -570,22 +610,35 @@ iotop
 
 # 检查数据库性能
 # 连接到数据库
-psql -U marketplace_user -d marketplace
+sqlite3 /opt/geektools/data/marketplace.db
 
--- 查看慢查询
-SELECT query, mean_time, calls 
-FROM pg_stat_statements 
-ORDER BY mean_time DESC 
-LIMIT 10;
+-- 查看数据库统计信息
+.dbinfo
 
--- 查看表大小
+-- 检查表信息和大小
 SELECT 
-    schemaname,
-    tablename,
-    pg_size_pretty(pg_total_relation_size(schemaname||'.'||tablename)) as size
-FROM pg_tables 
-WHERE schemaname = 'public'
-ORDER BY pg_total_relation_size(schemaname||'.'||tablename) DESC;
+    name as table_name,
+    sql as create_statement
+FROM sqlite_master 
+WHERE type = 'table' 
+ORDER BY name;
+
+-- 查看数据库页面统计
+PRAGMA page_count;
+PRAGMA page_size;
+PRAGMA freelist_count;
+
+-- 查看索引使用情况
+PRAGMA index_list('plugins');
+PRAGMA index_info('idx_plugins_downloads');
+
+-- 分析查询计划
+EXPLAIN QUERY PLAN SELECT * FROM plugins WHERE status = 'active';
+
+-- 检查数据库完整性和统计
+PRAGMA integrity_check;
+PRAGMA quick_check;
+PRAGMA optimize;
 ```
 
 ### 3. 日志分析
@@ -637,20 +690,29 @@ server {
 
 ```sql
 -- 创建索引优化查询性能
-CREATE INDEX CONCURRENTLY idx_plugins_downloads ON plugins(downloads DESC);
-CREATE INDEX CONCURRENTLY idx_plugins_created_at ON plugins(created_at DESC);
-CREATE INDEX CONCURRENTLY idx_plugins_status ON plugins(status) WHERE status = 'active';
-CREATE INDEX CONCURRENTLY idx_users_email_hash ON users USING hash(email);
+CREATE INDEX IF NOT EXISTS idx_plugins_downloads ON plugins(downloads DESC);
+CREATE INDEX IF NOT EXISTS idx_plugins_created_at ON plugins(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_plugins_status ON plugins(status) WHERE status = 'active';
+CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+
+-- 配置SQLite性能参数
+PRAGMA journal_mode = WAL;              -- 使用WAL模式提高并发性能
+PRAGMA synchronous = NORMAL;            -- 平衡性能和安全性
+PRAGMA cache_size = -64000;             -- 设置缓存大小为64MB
+PRAGMA temp_store = MEMORY;             -- 临时表存储在内存中
+PRAGMA mmap_size = 268435456;           -- 使用256MB内存映射
 
 -- 定期维护数据库
 -- 每周执行
-VACUUM ANALYZE;
+VACUUM;                                 -- 重组数据库，回收空间
+PRAGMA optimize;                        -- 更新查询优化器统计信息
 
 -- 每月执行
-REINDEX DATABASE marketplace;
+REINDEX;                                -- 重建所有索引
 
--- 更新统计信息
-ANALYZE;
+-- 检查和优化
+PRAGMA integrity_check;                 -- 检查数据库完整性
+PRAGMA quick_check;                     -- 快速完整性检查
 ```
 
 ### 3. 定期维护任务
@@ -667,10 +729,10 @@ echo "$(date): Starting maintenance tasks..."
 find /tmp -name "geektools_*" -mtime +7 -delete
 
 # 清理过期会话
-psql -U marketplace_user -d marketplace -c "DELETE FROM user_sessions WHERE expires_at < NOW();"
+sqlite3 /opt/geektools/data/marketplace.db "DELETE FROM user_sessions WHERE expires_at < datetime('now');"
 
 # 清理过期验证码
-psql -U marketplace_user -d marketplace -c "DELETE FROM verification_codes WHERE expires_at < NOW();"
+sqlite3 /opt/geektools/data/marketplace.db "DELETE FROM verification_codes WHERE expires_at < datetime('now');"
 
 # 压缩旧日志
 find /opt/geektools/logs -name "*.log" -mtime +7 -exec gzip {} \;
@@ -678,8 +740,8 @@ find /opt/geektools/logs -name "*.log" -mtime +7 -exec gzip {} \;
 # 清理旧日志压缩文件
 find /opt/geektools/logs -name "*.log.gz" -mtime +30 -delete
 
-# 更新数据库统计
-psql -U marketplace_user -d marketplace -c "ANALYZE;"
+# 优化数据库性能
+sqlite3 /opt/geektools/data/marketplace.db "PRAGMA optimize; VACUUM;"
 
 echo "$(date): Maintenance tasks completed."
 ```

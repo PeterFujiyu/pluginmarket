@@ -187,28 +187,8 @@ CMD ["python", "proxy_server.py"]
 version: '3.8'
 
 services:
-  # PostgreSQL数据库
-  postgres:
-    image: postgres:15-alpine
-    container_name: geektools_postgres
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB: marketplace
-      POSTGRES_USER: marketplace_user
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=C --lc-ctype=C"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./docker/postgres/init:/docker-entrypoint-initdb.d
-    ports:
-      - "5432:5432"
-    networks:
-      - geektools_network
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U marketplace_user -d marketplace"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+  # SQLite数据库 (嵌入在应用中，无需单独服务)
+  # 数据库文件通过卷挂载持久化
 
   # Redis缓存 (可选)
   redis:
@@ -236,7 +216,7 @@ services:
     container_name: geektools_api
     restart: unless-stopped
     environment:
-      DATABASE_URL: postgres://marketplace_user:${POSTGRES_PASSWORD}@postgres:5432/marketplace
+      DATABASE_URL: sqlite:///app/database/marketplace.db
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       JWT_SECRET: ${JWT_SECRET}
       SMTP_ENABLED: ${SMTP_ENABLED:-false}
@@ -252,12 +232,13 @@ services:
     volumes:
       - upload_data:/app/uploads
       - log_data:/app/logs
+      - database_data:/app/database
     ports:
       - "3000:3000"
     networks:
       - geektools_network
     depends_on:
-      postgres:
+      redis:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3000/api/v1/health"]
@@ -306,24 +287,20 @@ services:
     profiles:
       - production
 
-  # pgAdmin数据库管理 (开发环境)
-  pgadmin:
-    image: dpage/pgadmin4:latest
-    container_name: geektools_pgadmin
+  # SQLite Web管理界面 (开发环境)
+  sqlite-web:
+    image: coleifer/sqlite-web
+    container_name: geektools_sqlite_web
     restart: unless-stopped
-    environment:
-      PGADMIN_DEFAULT_EMAIL: admin@example.com
-      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD}
-      PGADMIN_CONFIG_SERVER_MODE: 'False'
-      PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: 'False'
+    command: ["-H", "0.0.0.0", "-x", "/database/marketplace.db"]
     volumes:
-      - pgadmin_data:/var/lib/pgadmin
+      - database_data:/database
     ports:
-      - "8081:80"
+      - "8081:8080"
     networks:
       - geektools_network
     depends_on:
-      - postgres
+      - api
     profiles:
       - development
 
@@ -379,15 +356,13 @@ networks:
 
 # 数据卷配置
 volumes:
-  postgres_data:
+  database_data:
     driver: local
   redis_data:
     driver: local
   upload_data:
     driver: local
   log_data:
-    driver: local
-  pgadmin_data:
     driver: local
   prometheus_data:
     driver: local
@@ -400,9 +375,8 @@ volumes:
 #### .env文件
 
 ```bash
-# 数据库配置
-POSTGRES_PASSWORD=secure_random_password_123
-PGADMIN_PASSWORD=admin_password_123
+# 数据库配置 (SQLite嵌入式，无需密码)
+# DATABASE_PATH=/app/database/marketplace.db
 
 # Redis配置
 REDIS_PASSWORD=redis_password_123
@@ -618,9 +592,9 @@ scrape_configs:
     metrics_path: /metrics
     scrape_interval: 10s
 
-  - job_name: 'postgres'
+  - job_name: 'sqlite'
     static_configs:
-      - targets: ['postgres-exporter:9187']
+      - targets: ['api:9090']  # SQLite metrics through application
 
   - job_name: 'nginx'
     static_configs:
@@ -691,9 +665,9 @@ DATE=$(date +%Y%m%d_%H%M%S)
 # 创建备份目录
 mkdir -p $BACKUP_DIR
 
-# 备份数据库
-docker-compose exec -T postgres pg_dump -U marketplace_user marketplace | \
-    gzip > $BACKUP_DIR/database_$DATE.sql.gz
+# 备份SQLite数据库
+docker-compose exec -T api sqlite3 /app/database/marketplace.db ".backup stdout" | \
+    gzip > $BACKUP_DIR/database_$DATE.db.gz
 
 # 备份上传文件
 docker run --rm -v geektools_upload_data:/data -v $(pwd)/$BACKUP_DIR:/backup \
@@ -717,10 +691,10 @@ if [ -z "$BACKUP_FILE" ]; then
     exit 1
 fi
 
-# 恢复数据库
+# 恢复SQLite数据库
 if [[ $BACKUP_FILE == *"database"* ]]; then
     gunzip -c $BACKUP_FILE | \
-        docker-compose exec -T postgres psql -U marketplace_user -d marketplace
+        docker-compose exec -T api sqlite3 /app/database/marketplace.db ".restore stdin"
 fi
 
 # 恢复上传文件
@@ -763,7 +737,7 @@ check_health() {
     fi
     
     # 数据库健康检查
-    if docker-compose exec postgres pg_isready -U marketplace_user -d marketplace; then
+    if docker-compose exec api sqlite3 /app/database/marketplace.db "SELECT 1;" >/dev/null 2>&1; then
         echo "✅ Database is healthy"
     else
         echo "❌ Database is unhealthy"
@@ -867,7 +841,7 @@ docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 docker-compose logs [service_name]
 
 # 2. 数据库连接失败
-docker-compose exec postgres psql -U marketplace_user -d marketplace
+docker-compose exec api sqlite3 /app/database/marketplace.db
 
 # 3. 端口冲突
 sudo netstat -tulpn | grep :3000

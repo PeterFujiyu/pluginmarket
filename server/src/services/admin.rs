@@ -1,6 +1,5 @@
-use chrono::{DateTime, Duration, Utc};
-use sqlx::{PgPool, Row, Column, ValueRef, TypeInfo};
-use ipnetwork::IpNetwork;
+use chrono::{Duration, Utc};
+use sqlx::{SqlitePool, Row, Column, ValueRef, TypeInfo};
 use std::net::IpAddr;
 use std::sync::Arc;
 use std::time::Instant;
@@ -15,18 +14,18 @@ use crate::{
 };
 
 pub struct AdminService {
-    db_pool: PgPool,
+    db_pool: SqlitePool,
     config: Arc<Config>,
 }
 
 impl AdminService {
-    pub fn new(db_pool: PgPool, config: Arc<Config>) -> Self {
+    pub fn new(db_pool: SqlitePool, config: Arc<Config>) -> Self {
         Self { db_pool, config }
     }
 
     // Check if user has admin role
     pub async fn is_admin(&self, user_id: i32) -> anyhow::Result<bool> {
-        let role: Option<String> = sqlx::query_scalar("SELECT role FROM users WHERE id = $1")
+        let role: Option<String> = sqlx::query_scalar("SELECT role FROM users WHERE id = ?")
             .bind(user_id)
             .fetch_optional(&self.db_pool)
             .await?;
@@ -48,13 +47,13 @@ impl AdminService {
             r#"
             INSERT INTO user_login_activities 
             (user_id, email, ip_address, user_agent, login_time, login_method, is_successful, failure_reason)
-            VALUES ($1, $2, $3, $4, NOW(), 'email_verification', $5, $6)
+            VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, 'email_verification', ?, ?)
             RETURNING id
             "#,
         )
         .bind(user_id)
         .bind(email)
-        .bind(ip_address.map(|ip| IpNetwork::from(ip)))
+        .bind(ip_address.map(|ip| ip.to_string()))
         .bind(user_agent)
         .bind(is_successful)
         .bind(failure_reason)
@@ -82,7 +81,7 @@ impl AdminService {
         // Get active sessions (logins in last 24 hours without logout)
         let active_sessions: i64 = sqlx::query_scalar(
             "SELECT COUNT(*) FROM user_login_activities 
-             WHERE login_time > NOW() - INTERVAL '24 hours' 
+             WHERE login_time > datetime('now', '-24 hours') 
              AND logout_time IS NULL AND is_successful = true"
         )
         .fetch_one(&self.db_pool)
@@ -154,7 +153,7 @@ impl AdminService {
                 GROUP BY user_id
             ) la ON u.id = la.user_id
             ORDER BY u.created_at DESC
-            LIMIT $1 OFFSET $2
+            LIMIT ? OFFSET ?
             "#,
         )
         .bind(limit)
@@ -175,13 +174,13 @@ impl AdminService {
         let mut tx = self.db_pool.begin().await?;
 
         // Get current email
-        let current_email: String = sqlx::query_scalar("SELECT email FROM users WHERE id = $1")
+        let current_email: String = sqlx::query_scalar("SELECT email FROM users WHERE id = ?")
             .bind(request.user_id)
             .fetch_one(&mut *tx)
             .await?;
 
         // Update email
-        sqlx::query("UPDATE users SET email = $1, updated_at = NOW() WHERE id = $2")
+        sqlx::query("UPDATE users SET email = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?")
             .bind(&request.new_email)
             .bind(request.user_id)
             .execute(&mut *tx)
@@ -192,7 +191,7 @@ impl AdminService {
             r#"
             INSERT INTO user_profile_changes 
             (user_id, changed_by_user_id, field_name, old_value, new_value, change_reason, ip_address)
-            VALUES ($1, $2, 'email', $3, $4, $5, $6)
+            VALUES (?, ?, 'email', ?, ?, ?, ?)
             "#,
         )
         .bind(request.user_id)
@@ -200,7 +199,7 @@ impl AdminService {
         .bind(&current_email)
         .bind(&request.new_email)
         .bind(&request.reason)
-        .bind(ip_address.map(|ip| IpNetwork::from(ip)))
+        .bind(ip_address.map(|ip| ip.to_string()))
         .execute(&mut *tx)
         .await?;
 
@@ -309,7 +308,7 @@ impl AdminService {
             r#"
             INSERT INTO admin_sql_logs 
             (admin_user_id, admin_email, sql_query, execution_time_ms, rows_affected, is_successful, error_message, ip_address)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             "#,
         )
         .bind(admin_user_id)
@@ -319,7 +318,7 @@ impl AdminService {
         .bind(result.rows_affected)
         .bind(result.is_successful)
         .bind(&result.error_message)
-        .bind(ip_address.map(|ip| IpNetwork::from(ip)))
+        .bind(ip_address.map(|ip| ip.to_string()))
         .execute(&self.db_pool)
         .await;
 
@@ -339,14 +338,14 @@ impl AdminService {
         let limit = pagination.limit.unwrap_or(20);
         let offset = (page - 1) * limit;
 
-        let (query, count_query) = if let Some(uid) = user_id {
+        let (query, count_query) = if let Some(_uid) = user_id {
             (
-                "SELECT * FROM user_login_activities WHERE user_id = $1 ORDER BY login_time DESC LIMIT $2 OFFSET $3",
-                "SELECT COUNT(*) FROM user_login_activities WHERE user_id = $1"
+                "SELECT * FROM user_login_activities WHERE user_id = ? ORDER BY login_time DESC LIMIT ? OFFSET ?",
+                "SELECT COUNT(*) FROM user_login_activities WHERE user_id = ?"
             )
         } else {
             (
-                "SELECT * FROM user_login_activities ORDER BY login_time DESC LIMIT $1 OFFSET $2",
+                "SELECT * FROM user_login_activities ORDER BY login_time DESC LIMIT ? OFFSET ?",
                 "SELECT COUNT(*) FROM user_login_activities"
             )
         };
@@ -392,7 +391,7 @@ impl AdminService {
         let mut tx = self.db_pool.begin().await?;
 
         // Soft delete the plugin by setting status to banned
-        let rows_affected = sqlx::query("UPDATE plugins SET status = 'banned', updated_at = NOW() WHERE id = $1")
+        let rows_affected = sqlx::query("UPDATE plugins SET status = 'banned', updated_at = CURRENT_TIMESTAMP WHERE id = ?")
             .bind(&request.plugin_id)
             .execute(&mut *tx)
             .await?
@@ -407,13 +406,13 @@ impl AdminService {
             r#"
             INSERT INTO admin_sql_logs 
             (admin_user_id, admin_email, sql_query, execution_time_ms, rows_affected, is_successful, error_message, ip_address)
-            VALUES ($1, (SELECT email FROM users WHERE id = $1), $2, 0, $3, true, NULL, $4)
+            VALUES (?, (SELECT email FROM users WHERE id = ?), ?, 0, ?, true, NULL, ?)
             "#,
         )
         .bind(admin_user_id)
         .bind(&format!("DELETE PLUGIN: {} - REASON: {}", request.plugin_id, request.reason.unwrap_or("No reason provided".to_string())))
         .bind(rows_affected as i32)
-        .bind(ip_address.map(|ip| IpNetwork::from(ip)))
+        .bind(ip_address.map(|ip| ip.to_string()))
         .execute(&mut *tx)
         .await?;
 
@@ -431,7 +430,7 @@ impl AdminService {
         let mut tx = self.db_pool.begin().await?;
 
         // Calculate ban expiry date
-        let ban_expires_at = if let Some(days) = request.ban_duration_days {
+        let _ban_expires_at = if let Some(days) = request.ban_duration_days {
             Some(Utc::now() + Duration::days(days as i64))
         } else {
             None // Permanent ban
@@ -439,7 +438,7 @@ impl AdminService {
 
         // Update user status
         let rows_affected = sqlx::query(
-            "UPDATE users SET is_active = false, updated_at = NOW() WHERE id = $1"
+            "UPDATE users SET is_active = false, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
         )
         .bind(request.user_id)
         .execute(&mut *tx)
@@ -455,13 +454,13 @@ impl AdminService {
             r#"
             INSERT INTO user_profile_changes 
             (user_id, changed_by_user_id, field_name, old_value, new_value, change_reason, ip_address)
-            VALUES ($1, $2, 'ban_status', 'active', 'banned', $3, $4)
+            VALUES (?, ?, 'ban_status', 'active', 'banned', ?, ?)
             "#,
         )
         .bind(request.user_id)
         .bind(admin_user_id)
         .bind(&request.reason.unwrap_or("No reason provided".to_string()))
-        .bind(ip_address.map(|ip| IpNetwork::from(ip)))
+        .bind(ip_address.map(|ip| ip.to_string()))
         .execute(&mut *tx)
         .await?;
 
@@ -480,7 +479,7 @@ impl AdminService {
 
         // Update user status
         let rows_affected = sqlx::query(
-            "UPDATE users SET is_active = true, updated_at = NOW() WHERE id = $1"
+            "UPDATE users SET is_active = true, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
         )
         .bind(request.user_id)
         .execute(&mut *tx)
@@ -496,13 +495,13 @@ impl AdminService {
             r#"
             INSERT INTO user_profile_changes 
             (user_id, changed_by_user_id, field_name, old_value, new_value, change_reason, ip_address)
-            VALUES ($1, $2, 'ban_status', 'banned', 'active', $3, $4)
+            VALUES (?, ?, 'ban_status', 'banned', 'active', ?, ?)
             "#,
         )
         .bind(request.user_id)
         .bind(admin_user_id)
         .bind(&request.reason.unwrap_or("No reason provided".to_string()))
-        .bind(ip_address.map(|ip| IpNetwork::from(ip)))
+        .bind(ip_address.map(|ip| ip.to_string()))
         .execute(&mut *tx)
         .await?;
 
@@ -540,7 +539,7 @@ impl AdminService {
                 updated_at
             FROM plugins
             ORDER BY created_at DESC
-            LIMIT $1 OFFSET $2
+            LIMIT ? OFFSET ?
             "#,
         )
         .bind(limit)

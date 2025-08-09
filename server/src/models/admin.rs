@@ -1,7 +1,6 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
-use ipnetwork::IpNetwork;
 use validator::Validate;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -33,7 +32,7 @@ pub struct UserLoginActivity {
     pub id: i32,
     pub user_id: i32,
     pub email: String,
-    pub ip_address: Option<IpNetwork>,
+    pub ip_address: Option<String>,
     pub user_agent: Option<String>,
     pub login_time: DateTime<Utc>,
     pub logout_time: Option<DateTime<Utc>>,
@@ -54,7 +53,7 @@ pub struct AdminSqlLog {
     pub rows_affected: Option<i32>,
     pub is_successful: bool,
     pub error_message: Option<String>,
-    pub ip_address: Option<IpNetwork>,
+    pub ip_address: Option<String>,
     pub executed_at: DateTime<Utc>,
 }
 
@@ -67,7 +66,7 @@ pub struct UserProfileChange {
     pub old_value: Option<String>,
     pub new_value: Option<String>,
     pub change_reason: Option<String>,
-    pub ip_address: Option<IpNetwork>,
+    pub ip_address: Option<String>,
     pub changed_at: DateTime<Utc>,
 }
 

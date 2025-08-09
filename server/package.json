@@ -1,0 +1,14 @@
+{
+  "name": "@pluginmarket/server",
+  "version": "1.0.0",
+  "description": "Plugin Marketplace Backend Server",
+  "private": true,
+  "scripts": {
+    "dev": "cargo run",
+    "build": "cargo build --release",
+    "build:dev": "cargo build",
+    "db:migrate": "sqlx migrate run",
+    "db:reset": "rm -f marketplace.db && sqlx migrate run",
+    "test": "cargo test"
+  }
+}

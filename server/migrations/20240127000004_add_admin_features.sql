@@ -1,23 +1,23 @@
 -- Add admin features: user roles and login activity tracking
 
 -- Add role column to users table
-ALTER TABLE users ADD COLUMN IF NOT EXISTS role VARCHAR(20) DEFAULT 'user';
+ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'user';
 UPDATE users SET role = 'admin' WHERE id = 1; -- Make first user admin
 
 -- Create user_login_activities table
 CREATE TABLE IF NOT EXISTS user_login_activities (
-    id SERIAL PRIMARY KEY,
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    email VARCHAR(255) NOT NULL,
-    ip_address INET,
+    email TEXT NOT NULL,
+    ip_address TEXT,
     user_agent TEXT,
-    login_time TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    logout_time TIMESTAMPTZ,
+    login_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    logout_time DATETIME,
     session_duration INTEGER, -- in seconds
-    login_method VARCHAR(50) DEFAULT 'email_verification',
-    is_successful BOOLEAN DEFAULT true,
+    login_method TEXT DEFAULT 'email_verification',
+    is_successful BOOLEAN DEFAULT 1,
     failure_reason TEXT,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Create indexes for performance
@@ -27,16 +27,16 @@ CREATE INDEX IF NOT EXISTS idx_user_login_activities_email ON user_login_activit
 
 -- Create admin_sql_logs table for SQL console activity tracking
 CREATE TABLE IF NOT EXISTS admin_sql_logs (
-    id SERIAL PRIMARY KEY,
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
     admin_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    admin_email VARCHAR(255) NOT NULL,
+    admin_email TEXT NOT NULL,
     sql_query TEXT NOT NULL,
     execution_time_ms INTEGER,
     rows_affected INTEGER,
-    is_successful BOOLEAN DEFAULT true,
+    is_successful BOOLEAN DEFAULT 1,
     error_message TEXT,
-    ip_address INET,
-    executed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    ip_address TEXT,
+    executed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Create index for admin SQL logs
@@ -45,15 +45,15 @@ CREATE INDEX IF NOT EXISTS idx_admin_sql_logs_executed_at ON admin_sql_logs(exec
 
 -- Create user_profile_changes table for tracking email changes
 CREATE TABLE IF NOT EXISTS user_profile_changes (
-    id SERIAL PRIMARY KEY,
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     changed_by_user_id INTEGER NOT NULL REFERENCES users(id),
-    field_name VARCHAR(50) NOT NULL,
+    field_name TEXT NOT NULL,
     old_value TEXT,
     new_value TEXT,
     change_reason TEXT,
-    ip_address INET,
-    changed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    ip_address TEXT,
+    changed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Create index for user profile changes

@@ -91,10 +91,13 @@ class ProxyHandler(http.server.SimpleHTTPRequestHandler):
             self.send_error(500, f"Proxy error: {str(e)}")
 
 if __name__ == "__main__":
-    os.chdir(os.path.dirname(os.path.abspath(__file__)))
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    frontend_dir = os.path.join(script_dir, 'frontend')
+    os.chdir(frontend_dir)
     
     with socketserver.TCPServer(("", PORT), ProxyHandler) as httpd:
         print(f"Serving at http://localhost:{PORT}")
+        print(f"Serving static files from: {frontend_dir}")
         print(f"Proxying /api/* requests to {BACKEND_URL}")
         print("Press Ctrl+C to stop")
         httpd.serve_forever()

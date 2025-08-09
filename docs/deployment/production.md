@@ -13,7 +13,7 @@ Internet
     |
 [Application Servers (API)]
     |
-[Database (PostgreSQL Master/Slave)]
+[Database (SQLite)]
     |
 [Cache Layer (Redis)]
     |
@@ -26,7 +26,7 @@ Internet
 ```
 Web服务器: 2CPU, 4GB RAM, 50GB SSD
 API服务器: 2CPU, 4GB RAM, 50GB SSD
-数据库服务器: 2CPU, 8GB RAM, 100GB SSD
+应用+数据库服务器: 2CPU, 4GB RAM, 50GB SSD
 负载均衡器: 1CPU, 2GB RAM, 20GB SSD
 ```
 
@@ -34,7 +34,7 @@ API服务器: 2CPU, 4GB RAM, 50GB SSD
 ```
 Web服务器: 4CPU, 8GB RAM, 100GB SSD (2台)
 API服务器: 4CPU, 8GB RAM, 100GB SSD (3台)
-数据库服务器: 8CPU, 16GB RAM, 500GB SSD (主从)
+应用+数据库服务器: 4CPU, 8GB RAM, 100GB SSD (2台)
 Redis缓存: 2CPU, 4GB RAM, 50GB SSD
 负载均衡器: 2CPU, 4GB RAM, 50GB SSD (2台HA)
 ```
@@ -43,7 +43,7 @@ Redis缓存: 2CPU, 4GB RAM, 50GB SSD
 ```
 Web服务器: 8CPU, 16GB RAM, 200GB SSD (3台+)
 API服务器: 8CPU, 16GB RAM, 200GB SSD (5台+)
-数据库服务器: 16CPU, 32GB RAM, 1TB SSD (集群)
+应用+数据库服务器: 8CPU, 16GB RAM, 200GB SSD (3台+)
 Redis缓存: 4CPU, 8GB RAM, 100GB SSD (集群)
 负载均衡器: 4CPU, 8GB RAM, 100GB SSD (HA)
 文件存储: 对象存储服务
@@ -142,129 +142,195 @@ EOF
 
 ## 数据库部署
 
-### 1. PostgreSQL安装配置
+### 1. SQLite配置
 
 ```bash
-# 安装PostgreSQL 15
-sudo apt install -y postgresql-15 postgresql-client-15 postgresql-contrib-15
+# 安装SQLite (通常系统已预装)
+sudo apt install -y sqlite3
 
-# 启动并设置开机自启
-sudo systemctl enable postgresql
-sudo systemctl start postgresql
+# 创建数据库目录
+sudo mkdir -p /opt/geektools/database
+sudo chown geektools:geektools /opt/geektools/database
+sudo chmod 750 /opt/geektools/database
 
-# 创建数据库和用户
-sudo -u postgres psql << EOF
-CREATE DATABASE marketplace;
-CREATE USER marketplace_user WITH PASSWORD 'secure_production_password';
-GRANT ALL PRIVILEGES ON DATABASE marketplace TO marketplace_user;
-ALTER USER marketplace_user CREATEDB;
-\q
+# 数据库文件将由应用自动创建
+# 位置: /opt/geektools/database/marketplace.db
+```
+
+### 2. SQLite生产优化
+
+创建SQLite优化配置脚本 `/opt/geektools/scripts/sqlite_optimize.sql`：
+
+```sql
+-- 性能优化设置
+PRAGMA journal_mode = WAL;              -- 启用WAL模式，支持并发读
+PRAGMA synchronous = NORMAL;            -- 平衡性能和安全性
+PRAGMA cache_size = -64000;             -- 64MB内存缓存
+PRAGMA temp_store = MEMORY;             -- 临时表存储在内存
+PRAGMA mmap_size = 134217728;           -- 128MB内存映射
+PRAGMA optimize;                        -- 优化数据库结构
+
+-- 定期维护设置
+PRAGMA auto_vacuum = INCREMENTAL;       -- 启用增量真空
+PRAGMA incremental_vacuum(1000);        -- 增量真空页数
+
+-- 连接和锁超时
+PRAGMA busy_timeout = 30000;            -- 30秒锁超时
+```
+
+创建数据库维护脚本 `/opt/geektools/scripts/sqlite_maintenance.sh`：
+
+```bash
+#!/bin/bash
+# SQLite数据库维护脚本
+
+DB_PATH="/opt/geektools/database/marketplace.db"
+BACKUP_DIR="/opt/geektools/backups"
+LOG_FILE="/opt/geektools/logs/sqlite_maintenance.log"
+
+log() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" | tee -a $LOG_FILE
+}
+
+# 创建备份目录
+mkdir -p $BACKUP_DIR
+
+# 数据库完整性检查
+log "Running integrity check..."
+if sqlite3 $DB_PATH "PRAGMA integrity_check;" | grep -q "ok"; then
+    log "Integrity check passed"
+else
+    log "ERROR: Integrity check failed"
+    exit 1
+fi
+
+# 分析统计信息
+log "Analyzing database statistics..."
+sqlite3 $DB_PATH "PRAGMA analyze;"
+
+# 优化数据库
+log "Optimizing database..."
+sqlite3 $DB_PATH "PRAGMA optimize;"
+
+# 增量真空清理
+log "Running incremental vacuum..."
+sqlite3 $DB_PATH "PRAGMA incremental_vacuum(1000);"
+
+log "Database maintenance completed"
+```
+
+设置定期维护：
+```bash
+# 添加到crontab
+sudo crontab -e
+# 每天凌晨3点运行维护
+0 3 * * * /opt/geektools/scripts/sqlite_maintenance.sh
+```
+
+### 3. SQLite高可用配置
+
+由于SQLite是嵌入式数据库，高可用主要通过以下方式实现：
+
+#### 数据同步策略
+
+```bash
+# 创建数据同步脚本
+sudo tee /opt/geektools/scripts/sqlite_sync.sh << 'EOF'
+#!/bin/bash
+
+DB_PATH="/opt/geektools/database/marketplace.db"
+REMOTE_SERVERS=("server2" "server3")  # 其他服务器列表
+SYNC_USER="geektools"
+LOG_FILE="/opt/geektools/logs/sqlite_sync.log"
+
+log() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" | tee -a $LOG_FILE
+}
+
+# WAL文件同步到其他服务器
+sync_to_replicas() {
+    for server in "${REMOTE_SERVERS[@]}"; do
+        log "Syncing database to $server"
+        
+        # 使用rsync同步数据库文件
+        rsync -avz --delete \
+            $DB_PATH \
+            $DB_PATH-wal \
+            $DB_PATH-shm \
+            $SYNC_USER@$server:/opt/geektools/database/
+        
+        if [ $? -eq 0 ]; then
+            log "Successfully synced to $server"
+        else
+            log "ERROR: Failed to sync to $server"
+        fi
+    done
+}
+
+# 检查数据库是否在WAL模式
+if sqlite3 $DB_PATH "PRAGMA journal_mode;" | grep -q "wal"; then
+    log "Database is in WAL mode, performing sync"
+    sync_to_replicas
+else
+    log "Database is not in WAL mode, skipping sync"
+fi
 EOF
+
+chmod +x /opt/geektools/scripts/sqlite_sync.sh
 ```
 
-### 2. PostgreSQL生产优化
-
-编辑 `/etc/postgresql/15/main/postgresql.conf`：
+#### 读负载均衡配置
 
 ```bash
-# 内存配置
-shared_buffers = 1GB                    # 25% of RAM
-effective_cache_size = 3GB              # 75% of RAM
-work_mem = 4MB                          # For sorting operations
-maintenance_work_mem = 256MB            # For maintenance operations
-max_wal_size = 2GB
-min_wal_size = 1GB
-checkpoint_completion_target = 0.9
-
-# 连接配置
-max_connections = 200
-superuser_reserved_connections = 3
-
-# WAL配置
-wal_buffers = 16MB
-wal_level = replica
-archive_mode = on
-archive_command = 'cp %p /opt/geektools/backups/wal/%f'
-
-# 日志配置
-logging_collector = on
-log_directory = '/var/log/postgresql'
-log_filename = 'postgresql-%Y-%m-%d_%H%M%S.log'
-log_rotation_age = 1d
-log_rotation_size = 100MB
-log_min_duration_statement = 1000       # Log slow queries
-log_checkpoints = on
-log_connections = on
-log_disconnections = on
-log_lock_waits = on
-
-# 性能监控
-shared_preload_libraries = 'pg_stat_statements'
-track_activity_query_size = 2048
-pg_stat_statements.track = all
+# 应用配置支持多个SQLite读副本
+# 在.env文件中配置
+DATABASE_URL=sqlite:///opt/geektools/database/marketplace.db
+DATABASE_READ_REPLICAS=sqlite:///opt/geektools/database/marketplace_replica1.db,sqlite:///opt/geektools/database/marketplace_replica2.db
+DATABASE_MAX_CONNECTIONS=20
 ```
 
-编辑 `/etc/postgresql/15/main/pg_hba.conf`：
+#### 故障切换脚本
 
 ```bash
-# 认证配置
-local   all             postgres                                peer
-local   all             all                                     peer
-host    marketplace     marketplace_user    127.0.0.1/32       md5
-host    marketplace     marketplace_user    10.0.0.0/8         md5
-host    replication     replicator          10.0.0.0/8         md5
-```
+# 创建故障切换脚本
+sudo tee /opt/geektools/scripts/sqlite_failover.sh << 'EOF'
+#!/bin/bash
 
-重启PostgreSQL：
-```bash
-sudo systemctl restart postgresql
-```
+PRIMARY_DB="/opt/geektools/database/marketplace.db"
+BACKUP_DB="/opt/geektools/database/marketplace_backup.db"
+APP_CONFIG="/opt/geektools/config/.env"
+LOG_FILE="/opt/geektools/logs/sqlite_failover.log"
 
-### 3. 数据库主从复制 (高可用)
+log() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" | tee -a $LOG_FILE
+}
 
-#### 主服务器配置
+# 检查主数据库状态
+if sqlite3 $PRIMARY_DB "SELECT 1;" >/dev/null 2>&1; then
+    log "Primary database is healthy"
+    exit 0
+fi
 
-```bash
-# 创建复制用户
-sudo -u postgres psql << EOF
-CREATE USER replicator REPLICATION LOGIN CONNECTION LIMIT 3 ENCRYPTED PASSWORD 'replication_password';
-\q
+log "Primary database failure detected, initiating failover"
+
+# 切换到备份数据库
+if [ -f "$BACKUP_DB" ]; then
+    log "Switching to backup database"
+    
+    # 更新配置文件
+    sed -i "s|DATABASE_URL=sqlite://.*|DATABASE_URL=sqlite://$BACKUP_DB|" $APP_CONFIG
+    
+    # 重启应用服务
+    systemctl restart geektools
+    
+    log "Failover completed"
+else
+    log "ERROR: Backup database not found"
+    exit 1
+fi
 EOF
 
-# 配置postgresql.conf
-sudo tee -a /etc/postgresql/15/main/postgresql.conf << EOF
-# 复制配置
-wal_level = replica
-max_wal_senders = 3
-max_replication_slots = 3
-synchronous_commit = on
-synchronous_standby_names = 'standby1'
-EOF
-```
-
-#### 从服务器配置
-
-```bash
-# 停止PostgreSQL
-sudo systemctl stop postgresql
-
-# 备份并清除数据目录
-sudo mv /var/lib/postgresql/15/main /var/lib/postgresql/15/main.bak
-
-# 从主服务器复制数据
-sudo -u postgres pg_basebackup -h MASTER_IP -D /var/lib/postgresql/15/main -U replicator -P -W
-
-# 创建standby.signal文件
-sudo -u postgres touch /var/lib/postgresql/15/main/standby.signal
-
-# 配置recovery参数
-sudo -u postgres tee /var/lib/postgresql/15/main/postgresql.auto.conf << EOF
-primary_conninfo = 'host=MASTER_IP port=5432 user=replicator application_name=standby1'
-restore_command = 'cp /opt/geektools/backups/wal/%f %p'
-EOF
-
-# 启动从服务器
-sudo systemctl start postgresql
+chmod +x /opt/geektools/scripts/sqlite_failover.sh
 ```
 
 ## 应用部署
@@ -310,9 +376,10 @@ cp -r migrations /opt/geektools/app/
 
 ```bash
 # 数据库配置
-DATABASE_URL=postgres://marketplace_user:secure_production_password@localhost:5432/marketplace
-DATABASE_MAX_CONNECTIONS=50
+DATABASE_URL=sqlite:///opt/geektools/database/marketplace.db
+DATABASE_MAX_CONNECTIONS=20
 DATABASE_POOL_TIMEOUT=30
+DATABASE_ENABLE_WAL=true
 
 # JWT配置
 JWT_SECRET=your-super-secret-jwt-key-for-production-environment-change-this
@@ -368,8 +435,8 @@ METRICS_PORT=9090
 ```ini
 [Unit]
 Description=GeekTools Plugin Marketplace
-After=network.target postgresql.service redis.service
-Wants=postgresql.service redis.service
+After=network.target redis.service
+Wants=redis.service
 
 [Service]
 Type=simple
@@ -1041,7 +1108,8 @@ check_service() {
 }
 
 check_database() {
-    if ! pg_isready -h localhost -p 5432 -U marketplace_user > /dev/null 2>&1; then
+    local db_path="/opt/geektools/database/marketplace.db"
+    if ! sqlite3 $db_path "SELECT 1;" > /dev/null 2>&1; then
         log "ERROR: Database is not responding"
         send_alert "Database is not responding" "CRITICAL"
     fi
@@ -1122,11 +1190,17 @@ log() {
 backup_database() {
     log "Starting database backup..."
     
-    local backup_file="$BACKUP_DIR/database_$DATE.sql.gz"
+    local backup_file="$BACKUP_DIR/database_$DATE.db.gz"
+    local db_path="/opt/geektools/database/marketplace.db"
     
-    pg_dump -U marketplace_user -h localhost marketplace | gzip > $backup_file
+    # 使用SQLite backup命令创建在线备份
+    sqlite3 $db_path ".backup /tmp/marketplace_backup_$DATE.db"
     
-    if [ ${PIPESTATUS[0]} -eq 0 ]; then
+    if [ $? -eq 0 ]; then
+        # 压缩备份文件
+        gzip -c "/tmp/marketplace_backup_$DATE.db" > $backup_file
+        rm "/tmp/marketplace_backup_$DATE.db"
+        
         log "Database backup completed: $backup_file"
         
         # 验证备份文件

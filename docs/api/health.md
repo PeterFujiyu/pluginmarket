@@ -101,7 +101,7 @@
       "database_connection": {
         "status": "pass",
         "response_time_ms": 15,
-        "details": "PostgreSQL connection successful"
+        "details": "SQLite connection successful"
       },
       "database_migrations": {
         "status": "pass",
@@ -365,23 +365,23 @@ Authorization: Bearer {admin_token}  // 需要管理员权限
     "timestamp": "2024-01-15T10:30:00Z",
     "detailed_checks": {
       "database": {
-        "postgresql": {
+        "sqlite": {
           "status": "healthy",
-          "version": "14.9",
+          "version": "3.42.0",
           "connections": {
-            "active": 8,
+            "active": 3,
             "max": 20,
-            "utilization": 40.0
+            "utilization": 15.0
           },
           "performance": {
-            "avg_query_time_ms": 25.6,
-            "slow_queries": 3,
-            "cache_hit_ratio": 95.5
+            "avg_query_time_ms": 12.3,
+            "slow_queries": 0,
+            "cache_hit_ratio": 98.2
           },
-          "replication": {
-            "status": "active",
-            "lag_bytes": 0,
-            "replicas": ["replica-1", "replica-2"]
+          "wal_mode": {
+            "status": "enabled",
+            "journal_mode": "WAL",
+            "wal_size_kb": 256
           }
         }
       },

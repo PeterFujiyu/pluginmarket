@@ -190,7 +190,7 @@ impl Default for Config {
                 workers: None,
             },
             database: DatabaseConfig {
-                url: "postgres://postgres:password@localhost:5432/marketplace".to_string(),
+                url: "sqlite://marketplace.db".to_string(),
                 max_connections: 10,
                 connect_timeout: 30,
             },
@@ -208,6 +208,7 @@ impl Default for Config {
             cors: CorsConfig {
                 allowed_origins: vec![
                     "http://localhost:3000".to_string(),
+                    "http://localhost:3001".to_string(),
                     "http://localhost:8080".to_string(),
                 ],
                 allowed_methods: vec![

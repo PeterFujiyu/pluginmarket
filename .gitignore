@@ -27,3 +27,31 @@ server/uploads/
 server/target/
 .DS_Store
 .idea/workspace.xml
+
+# SQLite database files
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+server/*.db
+server/*.db-journal
+server/*.db-wal
+server/*.db-shm
+
+# Node.js dependencies
+node_modules/
+frontend/node_modules/
+server/node_modules/
+
+# Build outputs
+frontend/dist/
+
+# Package manager files
+pnpm-lock.yaml
+frontend/pnpm-lock.yaml
+server/pnpm-lock.yaml
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*

@@ -1,0 +1,28 @@
+{
+  "name": "pluginmarket",
+  "version": "1.0.0",
+  "description": "GeekTools Plugin Marketplace - 插件市场",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently \"pnpm run frontend:dev\" \"pnpm run backend:dev\"",
+    "frontend:dev": "cd frontend && pnpm run dev",
+    "frontend:build": "cd frontend && pnpm run build",
+    "frontend:serve": "cd frontend && pnpm run serve",
+    "backend:dev": "cd server && cargo run",
+    "backend:build": "cd server && cargo build --release",
+    "proxy:dev": "python3 proxy_server.py",
+    "db:migrate": "cd server && sqlx migrate run",
+    "db:reset": "cd server && rm -f marketplace.db && sqlx migrate run",
+    "install:all": "pnpm install && cd server && cargo build",
+    "build": "pnpm run frontend:build && pnpm run backend:build",
+    "start": "pnpm run build && concurrently \"pnpm run frontend:serve\" \"pnpm run backend:dev\""
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  },
+  "engines": {
+    "node": ">=16.0.0",
+    "pnpm": ">=8.0.0"
+  },
+  "packageManager": "pnpm@8.15.1"
+}

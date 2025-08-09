@@ -1,8 +1,7 @@
 use flate2::read::GzDecoder;
 use sha2::{Digest, Sha256};
-use sqlx::{PgPool, Row};
-use sqlx::types::{BigDecimal, Decimal};
-use std::{collections::HashMap, io::Read, sync::Arc, str::FromStr};
+use sqlx::{SqlitePool, Row};
+use std::{collections::HashMap, io::Read, sync::Arc};
 use tar::Archive;
 use validator::Validate;
 
@@ -17,14 +16,14 @@ use crate::{
 };
 
 pub struct PluginService {
-    db_pool: PgPool,
+    db_pool: SqlitePool,
     storage_service: Arc<StorageService>,
     config: Arc<Config>,
 }
 
 impl PluginService {
     pub fn new(
-        db_pool: PgPool,
+        db_pool: SqlitePool,
         storage_service: Arc<StorageService>,
         config: Arc<Config>,
     ) -> Self {
@@ -92,10 +91,8 @@ impl PluginService {
 
         let mut plugins = Vec::new();
         for row in rows {
-            // Convert NUMERIC to f64
-            let rating: Option<sqlx::types::Decimal> = row.try_get("rating").ok();
-            let rating_decimal = rating.map(|d| BigDecimal::from_str(&d.to_string()).unwrap_or_else(|_| BigDecimal::from_str("0.00").unwrap()))
-                .unwrap_or_else(|| BigDecimal::from_str("0.00").unwrap());
+            // Get rating as f64 directly
+            let rating_f64: f64 = row.try_get("rating").unwrap_or(0.0);
             
             plugins.push(PluginSummary {
                 id: row.get("id"),
@@ -104,7 +101,7 @@ impl PluginService {
                 author: row.get("author"),
                 current_version: row.get("current_version"),
                 downloads: row.get("downloads"),
-                rating: rating_decimal,
+                rating: rating_f64,
                 tags: vec![], // Empty for now
                 created_at: row.get("created_at"),
                 updated_at: row.get("updated_at"),
@@ -124,22 +121,19 @@ impl PluginService {
         );
 
         let mut conditions = Vec::new();
-        let mut bind_index = 1;
+        let mut _bind_index = 1;
         let mut bind_params: Vec<String> = Vec::new();
 
         if let Some(q) = query {
-            conditions.push(format!(
-                "(p.name ILIKE ${} OR p.description ILIKE ${})",
-                bind_index, bind_index + 1
-            ));
+            conditions.push("(p.name ILIKE ? OR p.description ILIKE ?)".to_string());
             let search_pattern = format!("%{}%", q);
             bind_params.push(search_pattern.clone());
             bind_params.push(search_pattern);
-            bind_index += 2;
+            _bind_index += 2;
         }
 
         if let Some(t) = tag {
-            conditions.push(format!("pt.tag = ${}", bind_index));
+            conditions.push("pt.tag = ?".to_string());
             bind_params.push(t.to_string());
         }
 
@@ -159,17 +153,15 @@ impl PluginService {
 
     pub async fn get_plugin_detail(&self, plugin_id: &str) -> sqlx::Result<Option<PluginDetailResponse>> {
         let row = sqlx::query(
-            "SELECT * FROM plugins WHERE id = $1 AND status = 'active'"
+            "SELECT * FROM plugins WHERE id = ? AND status = 'active'"
         )
         .bind(plugin_id)
         .fetch_optional(&self.db_pool)
         .await?;
 
         if let Some(row) = row {
-            // Convert NUMERIC to f64
-            let rating: Option<sqlx::types::Decimal> = row.try_get("rating").ok();
-            let rating_decimal = rating.map(|d| BigDecimal::from_str(&d.to_string()).unwrap_or_else(|_| BigDecimal::from_str("0.00").unwrap()))
-                .unwrap_or_else(|| BigDecimal::from_str("0.00").unwrap());
+            // Get rating as f64 directly
+            let rating_f64: f64 = row.try_get("rating").unwrap_or(0.0);
             
             let current_version: String = row.get("current_version");
             let plugin_id: String = row.get("id");
@@ -186,7 +178,7 @@ impl PluginService {
                 author: row.get("author"),
                 current_version,
                 downloads: row.get("downloads"),
-                rating: rating_decimal,
+                rating: rating_f64,
                 tags,
                 min_geektools_version: row.get("min_geektools_version"),
                 homepage_url: row.get("homepage_url"),
@@ -239,7 +231,7 @@ impl PluginService {
 
         // Check if plugin already exists
         let existing_plugin = sqlx::query_as::<_, Plugin>(
-            "SELECT * FROM plugins WHERE id = $1"
+            "SELECT * FROM plugins WHERE id = ?"
         )
         .bind(&plugin_info.id)
         .fetch_optional(&self.db_pool)
@@ -248,7 +240,7 @@ impl PluginService {
         if let Some(_) = existing_plugin {
             // Check if version already exists
             let existing_version = sqlx::query_as::<_, PluginVersion>(
-                "SELECT * FROM plugin_versions WHERE plugin_id = $1 AND version = $2"
+                "SELECT * FROM plugin_versions WHERE plugin_id = ? AND version = ?"
             )
             .bind(&plugin_info.id)
             .bind(&plugin_info.version)
@@ -282,7 +274,7 @@ impl PluginService {
                 r#"
                 INSERT INTO plugins (id, name, description, author, current_version, 
                                    min_geektools_version, homepage_url, repository_url, license)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 "#
             )
             .bind(&plugin_info.id)
@@ -298,7 +290,7 @@ impl PluginService {
             .await?;
         } else {
             sqlx::query(
-                "UPDATE plugins SET current_version = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2"
+                "UPDATE plugins SET current_version = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
             )
             .bind(&plugin_info.version)
             .bind(&plugin_info.id)
@@ -310,7 +302,7 @@ impl PluginService {
         sqlx::query(
             r#"
             INSERT INTO plugin_versions (plugin_id, version, changelog, file_path, file_size, file_hash)
-            VALUES ($1, $2, $3, $4, $5, $6)
+            VALUES (?, ?, ?, ?, ?, ?)
             "#
         )
         .bind(&plugin_info.id)
@@ -327,7 +319,7 @@ impl PluginService {
             sqlx::query(
                 r#"
                 INSERT INTO plugin_scripts (plugin_id, version, script_name, script_file, description, is_executable)
-                VALUES ($1, $2, $3, $4, $5, $6)
+                VALUES (?, ?, ?, ?, ?, ?)
                 "#
             )
             .bind(&plugin_info.id)
@@ -341,14 +333,14 @@ impl PluginService {
         }
 
         // Delete old tags and insert new ones
-        sqlx::query("DELETE FROM plugin_tags WHERE plugin_id = $1")
+        sqlx::query("DELETE FROM plugin_tags WHERE plugin_id = ?")
             .bind(&plugin_info.id)
             .execute(&mut *tx)
             .await?;
 
         for tag in &plugin_info.tags {
             sqlx::query(
-                "INSERT INTO plugin_tags (plugin_id, tag) VALUES ($1, $2)"
+                "INSERT INTO plugin_tags (plugin_id, tag) VALUES (?, ?)"
             )
             .bind(&plugin_info.id)
             .bind(tag)
@@ -359,7 +351,7 @@ impl PluginService {
         // Save dependencies
         for dep in &plugin_info.dependencies {
             sqlx::query(
-                "INSERT INTO plugin_dependencies (plugin_id, dependency_id, min_version) VALUES ($1, $2, $3)"
+                "INSERT INTO plugin_dependencies (plugin_id, dependency_id, min_version) VALUES (?, ?, ?)"
             )
             .bind(&plugin_info.id)
             .bind(&dep.id)
@@ -417,7 +409,7 @@ impl PluginService {
 
     async fn get_plugin_versions(&self, plugin_id: &str) -> sqlx::Result<Vec<PluginVersionInfo>> {
         let rows = sqlx::query(
-            "SELECT version, changelog, file_size, created_at, downloads, is_stable FROM plugin_versions WHERE plugin_id = $1 ORDER BY created_at DESC"
+            "SELECT version, changelog, file_size, created_at, downloads, is_stable FROM plugin_versions WHERE plugin_id = ? ORDER BY created_at DESC"
         )
         .bind(plugin_id)
         .fetch_all(&self.db_pool)
@@ -440,7 +432,7 @@ impl PluginService {
 
     async fn get_plugin_scripts(&self, plugin_id: &str, version: &str) -> sqlx::Result<Vec<PluginScriptInfo>> {
         let rows = sqlx::query(
-            "SELECT script_name, script_file, description, is_executable FROM plugin_scripts WHERE plugin_id = $1 AND version = $2"
+            "SELECT script_name, script_file, description, is_executable FROM plugin_scripts WHERE plugin_id = ? AND version = ?"
         )
         .bind(plugin_id)
         .bind(version)
@@ -462,7 +454,7 @@ impl PluginService {
 
     async fn get_plugin_dependencies(&self, plugin_id: &str) -> sqlx::Result<Vec<PluginDependencyInfo>> {
         let rows = sqlx::query(
-            "SELECT dependency_id, min_version FROM plugin_dependencies WHERE plugin_id = $1"
+            "SELECT dependency_id, min_version FROM plugin_dependencies WHERE plugin_id = ?"
         )
         .bind(plugin_id)
         .fetch_all(&self.db_pool)
@@ -481,7 +473,7 @@ impl PluginService {
 
     async fn get_plugin_tags(&self, plugin_id: &str) -> sqlx::Result<Vec<String>> {
         let rows = sqlx::query_scalar::<_, String>(
-            "SELECT tag FROM plugin_tags WHERE plugin_id = $1"
+            "SELECT tag FROM plugin_tags WHERE plugin_id = ?"
         )
         .bind(plugin_id)
         .fetch_all(&self.db_pool)
@@ -493,7 +485,7 @@ impl PluginService {
     pub async fn get_download_info(&self, plugin_id: &str, version: Option<&str>) -> sqlx::Result<Option<(String, String)>> {
         let query = if let Some(v) = version {
             sqlx::query(
-                "SELECT file_path, version FROM plugin_versions WHERE plugin_id = $1 AND version = $2"
+                "SELECT file_path, version FROM plugin_versions WHERE plugin_id = ? AND version = ?"
             )
             .bind(plugin_id)
             .bind(v)
@@ -503,7 +495,7 @@ impl PluginService {
                 SELECT pv.file_path, pv.version 
                 FROM plugin_versions pv 
                 JOIN plugins p ON pv.plugin_id = p.id 
-                WHERE p.id = $1 AND pv.version = p.current_version
+                WHERE p.id = ? AND pv.version = p.current_version
                 "#
             )
             .bind(plugin_id)
@@ -524,7 +516,7 @@ impl PluginService {
 
         if let Some(v) = version {
             sqlx::query(
-                "UPDATE plugin_versions SET downloads = downloads + 1 WHERE plugin_id = $1 AND version = $2"
+                "UPDATE plugin_versions SET downloads = downloads + 1 WHERE plugin_id = ? AND version = ?"
             )
             .bind(plugin_id)
             .bind(v)
@@ -533,7 +525,7 @@ impl PluginService {
         }
 
         sqlx::query(
-            "UPDATE plugins SET downloads = downloads + 1 WHERE id = $1"
+            "UPDATE plugins SET downloads = downloads + 1 WHERE id = ?"
         )
         .bind(plugin_id)
         .execute(&mut *tx)
@@ -546,7 +538,7 @@ impl PluginService {
 
     pub async fn get_plugin_stats(&self, plugin_id: &str) -> sqlx::Result<Option<PluginStatsResponse>> {
         let plugin = sqlx::query_as::<_, Plugin>(
-            "SELECT * FROM plugins WHERE id = $1"
+            "SELECT * FROM plugins WHERE id = ?"
         )
         .bind(plugin_id)
         .fetch_optional(&self.db_pool)
@@ -580,7 +572,7 @@ impl PluginService {
     ) -> sqlx::Result<RatingResponse> {
         // Check if a rating from this user already exists
         let existing_rating = sqlx::query_scalar::<_, i32>(
-            "SELECT id FROM plugin_ratings WHERE plugin_id = $1 AND user_id = $2"
+            "SELECT id FROM plugin_ratings WHERE plugin_id = ? AND user_id = ?"
         )
         .bind(plugin_id)
         .bind(user_id)
@@ -590,8 +582,8 @@ impl PluginService {
         let rating_id = if let Some(existing_id) = existing_rating {
             // Update existing rating
             sqlx::query_scalar::<_, i32>(
-                "UPDATE plugin_ratings SET rating = $1, review = $2, updated_at = NOW() 
-                 WHERE id = $3 RETURNING id"
+                "UPDATE plugin_ratings SET rating = ?, review = ?, updated_at = CURRENT_TIMESTAMP 
+                 WHERE id = ? RETURNING id"
             )
             .bind(rating)
             .bind(&review)
@@ -602,7 +594,7 @@ impl PluginService {
             // Create new rating
             sqlx::query_scalar::<_, i32>(
                 "INSERT INTO plugin_ratings (plugin_id, user_id, rating, review, created_at, updated_at)
-                 VALUES ($1, $2, $3, $4, NOW(), NOW()) RETURNING id"
+                 VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP) RETURNING id"
             )
             .bind(plugin_id)
             .bind(user_id)
@@ -613,20 +605,19 @@ impl PluginService {
         };
 
         // Update plugin's average rating
-        let avg_rating: Option<sqlx::types::Decimal> = sqlx::query_scalar(
-            "SELECT AVG(rating) FROM plugin_ratings WHERE plugin_id = $1"
+        let avg_rating: Option<f64> = sqlx::query_scalar(
+            "SELECT AVG(rating) FROM plugin_ratings WHERE plugin_id = ?"
         )
         .bind(plugin_id)
         .fetch_one(&self.db_pool)
         .await?;
 
-        let rating_decimal = avg_rating.map(|d| BigDecimal::from_str(&d.to_string()).unwrap_or_else(|_| BigDecimal::from_str("0.00").unwrap()))
-            .unwrap_or_else(|| BigDecimal::from_str("0.00").unwrap());
+        let rating_f64: f64 = avg_rating.unwrap_or(0.0);
 
         sqlx::query(
-            "UPDATE plugins SET rating = $1, updated_at = NOW() WHERE id = $2"
+            "UPDATE plugins SET rating = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
         )
-        .bind(rating_decimal)
+        .bind(rating_f64)
         .bind(plugin_id)
         .execute(&self.db_pool)
         .await?;
@@ -648,7 +639,7 @@ impl PluginService {
         let suggestions = sqlx::query_scalar::<_, String>(
             r#"
             SELECT DISTINCT name FROM plugins 
-            WHERE name ILIKE $1 AND status = 'active' 
+            WHERE name ILIKE ? AND status = 'active' 
             ORDER BY downloads DESC 
             LIMIT 10
             "#

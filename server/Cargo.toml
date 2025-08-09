@@ -14,10 +14,8 @@ tower = { version = "0.4", features = ["util", "timeout", "load-shed"] }
 tower-http = { version = "0.5", features = ["fs", "cors", "trace", "compression-gzip"] }
 
 # Database
-sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "postgres", "sqlite", "chrono", "uuid", "migrate", "ipnetwork", "bigdecimal"] }
-bigdecimal = { version = "0.4", features = ["serde"] }
-ipnetwork = "0.20"
-sea-orm = { version = "0.12", features = ["sqlx-postgres", "sqlx-sqlite", "runtime-tokio-rustls", "macros", "with-chrono", "with-uuid"] }
+sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "sqlite", "chrono", "uuid", "migrate"] }
+sea-orm = { version = "0.12", features = ["sqlx-sqlite", "runtime-tokio-rustls", "macros", "with-chrono", "with-uuid"] }
 sea-orm-migration = "0.12"
 
 # Serialization

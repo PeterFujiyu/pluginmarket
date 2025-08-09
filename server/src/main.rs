@@ -14,7 +14,7 @@ use axum::{
     Router,
 };
 use clap::Parser;
-use sqlx::postgres::PgPoolOptions;
+use sqlx::sqlite::SqlitePoolOptions;
 use std::time::Duration;
 use tower::ServiceBuilder;
 use tower_http::{
@@ -70,7 +70,7 @@ async fn main() -> anyhow::Result<()> {
     log_configuration(&config, port, &database_url);
 
     // Connect to database
-    let pool = PgPoolOptions::new()
+    let pool = SqlitePoolOptions::new()
         .max_connections(config.database.max_connections)
         .acquire_timeout(Duration::from_secs(30))
         .connect(&database_url)
@@ -101,6 +101,8 @@ fn create_app(state: AppState) -> Router {
         .allow_origin("http://127.0.0.1:8080".parse::<HeaderValue>().unwrap())
         .allow_origin("http://localhost:3000".parse::<HeaderValue>().unwrap())
         .allow_origin("http://127.0.0.1:3000".parse::<HeaderValue>().unwrap())
+        .allow_origin("http://localhost:3001".parse::<HeaderValue>().unwrap())
+        .allow_origin("http://127.0.0.1:3001".parse::<HeaderValue>().unwrap())
         .allow_origin("null".parse::<HeaderValue>().unwrap()) // For file:// protocol
         .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE, Method::OPTIONS])
         .allow_headers([AUTHORIZATION, ACCEPT, CONTENT_TYPE])

@@ -1,7 +1,6 @@
 use chrono::{Duration, Utc};
 use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
-use sqlx::PgPool;
-use ipnetwork::IpNetwork;
+use sqlx::SqlitePool;
 use std::sync::Arc;
 use std::collections::HashMap;
 use tokio::sync::RwLock;
@@ -12,7 +11,7 @@ use crate::{
 };
 
 pub struct AuthService {
-    db_pool: PgPool,
+    db_pool: SqlitePool,
     config: Arc<Config>,
     encoding_key: EncodingKey,
     decoding_key: DecodingKey,
@@ -20,7 +19,7 @@ pub struct AuthService {
 }
 
 impl AuthService {
-    pub fn new(db_pool: PgPool, config: Arc<Config>) -> Self {
+    pub fn new(db_pool: SqlitePool, config: Arc<Config>) -> Self {
         let encoding_key = EncodingKey::from_secret(config.jwt.secret.as_bytes());
         let decoding_key = DecodingKey::from_secret(config.jwt.secret.as_bytes());
 
@@ -35,7 +34,7 @@ impl AuthService {
 
     pub async fn user_exists(&self, username: &str, email: &str) -> sqlx::Result<bool> {
         let count = sqlx::query_scalar::<_, i64>(
-            "SELECT COUNT(*) FROM users WHERE username = $1 OR email = $2"
+            "SELECT COUNT(*) FROM users WHERE username = ? OR email = ?"
         )
         .bind(username)
         .bind(email)
@@ -58,7 +57,7 @@ impl AuthService {
         let user = sqlx::query_as::<_, User>(
             r#"
             INSERT INTO users (username, email, password_hash, display_name)
-            VALUES ($1, $2, $3, $4)
+            VALUES (?, ?, ?, ?)
             RETURNING *
             "#,
         )
@@ -78,7 +77,7 @@ impl AuthService {
         password: &str,
     ) -> sqlx::Result<Option<LoginResponse>> {
         let user = sqlx::query_as::<_, User>(
-            "SELECT * FROM users WHERE username = $1 AND is_active = true"
+            "SELECT * FROM users WHERE username = ? AND is_active = true"
         )
         .bind(username)
         .fetch_optional(&self.db_pool)
@@ -110,7 +109,7 @@ impl AuthService {
             .map_err(|_| sqlx::Error::Protocol("Invalid user ID in token".to_string()))?;
         
         let user = sqlx::query_as::<_, User>(
-            "SELECT * FROM users WHERE id = $1 AND is_active = true"
+            "SELECT * FROM users WHERE id = ? AND is_active = true"
         )
         .bind(user_id)
         .fetch_optional(&self.db_pool)
@@ -250,7 +249,7 @@ impl AuthService {
 
     async fn find_or_create_user_by_email(&self, email: &str) -> anyhow::Result<User> {
         // Try to find existing user
-        if let Ok(user) = sqlx::query_as::<_, User>("SELECT * FROM users WHERE email = $1")
+        if let Ok(user) = sqlx::query_as::<_, User>("SELECT * FROM users WHERE email = ?")
             .bind(email)
             .fetch_one(&self.db_pool)
             .await
@@ -277,7 +276,7 @@ impl AuthService {
 
         let user = sqlx::query_as::<_, User>(
             "INSERT INTO users (username, email, password_hash, display_name, role, is_active, is_verified, created_at, updated_at)
-             VALUES ($1, $2, $3, $4, $5, true, true, NOW(), NOW())
+             VALUES (?, ?, ?, ?, ?, true, true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
              RETURNING *"
         )
         .bind(&username)
@@ -317,12 +316,12 @@ impl AuthService {
             r#"
             INSERT INTO user_login_activities 
             (user_id, email, ip_address, user_agent, login_time, login_method, is_successful, failure_reason)
-            VALUES ($1, $2, $3, $4, NOW(), 'email_verification', $5, $6)
+            VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, 'email_verification', ?, ?)
             "#,
         )
         .bind(user_id)
         .bind(email)
-        .bind(ip_address.map(|ip| IpNetwork::from(ip)))
+        .bind(ip_address.map(|ip| ip.to_string()))
         .bind(user_agent)
         .bind(is_successful)
         .bind(failure_reason)
@@ -333,7 +332,7 @@ impl AuthService {
     }
 
     // Public getter for database pool (needed for auth middleware)
-    pub fn get_db_pool(&self) -> &PgPool {
+    pub fn get_db_pool(&self) -> &SqlitePool {
         &self.db_pool
     }
 }

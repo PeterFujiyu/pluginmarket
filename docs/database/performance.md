@@ -1,8 +1,8 @@
-# 数据库性能优化策略
+# SQLite数据库性能优化策略
 
 ## 概述
 
-GeekTools 插件市场的数据库性能优化涵盖查询优化、索引设计、连接池管理、缓存策略等多个方面。本文档提供全面的性能优化指南，确保系统在高并发和大数据量场景下的稳定运行。
+GeekTools 插件市场的SQLite数据库性能优化涵盖查询优化、索引设计、连接管理、缓存策略等多个方面。本文档提供全面的SQLite性能优化指南，确保系统在高并发和大数据量场景下的稳定运行。
 
 ## 查询性能优化
 
@@ -10,7 +10,7 @@ GeekTools 插件市场的数据库性能优化涵盖查询优化、索引设计�
 
 #### 主要索引类型
 
-**B-tree索引**（默认类型）:
+**普通索引**（B-tree索引）:
 ```sql
 -- 单字段索引
 CREATE INDEX idx_users_email ON users(email);
@@ -25,7 +25,7 @@ CREATE INDEX idx_users_email_lower ON users(LOWER(email));
 CREATE INDEX idx_plugins_created_date ON plugins(DATE(created_at));
 ```
 
-**部分索引**（过滤索引）:
+**部分索引**（WHERE条件索引）:
 ```sql
 -- 只为活跃插件创建索引
 CREATE INDEX idx_active_plugins_rating 
@@ -35,31 +35,50 @@ WHERE status = 'active';
 -- 只为失败登录创建索引
 CREATE INDEX idx_failed_logins 
 ON user_login_activities(ip_address, login_time) 
-WHERE is_successful = false;
+WHERE is_successful = 0;
 
 -- 只为最近数据创建索引
 CREATE INDEX idx_recent_plugin_ratings 
 ON plugin_ratings(created_at DESC) 
-WHERE created_at >= CURRENT_DATE - INTERVAL '30 days';
+WHERE created_at >= datetime('now', '-30 days');
 ```
 
-**GIN索引**（全文搜索）:
+**FTS5全文搜索索引**:
 ```sql
--- 全文搜索索引
-CREATE INDEX idx_plugins_search_vector 
-ON plugins USING gin(to_tsvector('english', name || ' ' || COALESCE(description, '')));
+-- 创建虚拟FTS5表用于全文搜索
+CREATE VIRTUAL TABLE plugins_fts USING fts5(
+    name, 
+    description, 
+    author, 
+    tags,
+    content=plugins,
+    content_rowid=id
+);
 
--- 数组字段索引
-CREATE INDEX idx_plugin_tags_gin 
-ON plugins USING gin(tags) 
-WHERE tags IS NOT NULL;
-```
+-- 填充FTS索引
+INSERT INTO plugins_fts(rowid, name, description, author, tags)
+SELECT id, name, COALESCE(description, ''), author, 
+       COALESCE(group_concat(tag, ' '), '') as tags
+FROM plugins p
+LEFT JOIN plugin_tags pt ON p.id = pt.plugin_id
+WHERE p.status = 'active'
+GROUP BY p.id;
 
-**哈希索引**（等值查询）:
-```sql
--- 适用于等值查询的字段
-CREATE INDEX idx_plugins_id_hash 
-ON plugins USING hash(id);
+-- 创建触发器维护FTS索引
+CREATE TRIGGER plugins_fts_insert AFTER INSERT ON plugins BEGIN
+    INSERT INTO plugins_fts(rowid, name, description, author)
+    VALUES (new.id, new.name, COALESCE(new.description, ''), new.author);
+END;
+
+CREATE TRIGGER plugins_fts_delete AFTER DELETE ON plugins BEGIN
+    DELETE FROM plugins_fts WHERE rowid = old.id;
+END;
+
+CREATE TRIGGER plugins_fts_update AFTER UPDATE ON plugins BEGIN
+    DELETE FROM plugins_fts WHERE rowid = old.id;
+    INSERT INTO plugins_fts(rowid, name, description, author)
+    VALUES (new.id, new.name, COALESCE(new.description, ''), new.author);
+END;
 ```
 
 #### 索引使用原则
@@ -78,26 +97,40 @@ ON plugins USING hash(id);
 **选择性分析**:
 ```sql
 -- 分析字段的选择性，高选择性字段适合创建索引
-SELECT 
-    column_name,
-    COUNT(DISTINCT column_name) as distinct_values,
-    COUNT(*) as total_rows,
-    COUNT(DISTINCT column_name)::float / COUNT(*) as selectivity
-FROM (
-    SELECT status, rating, downloads FROM plugins
-) t,
-LATERAL (VALUES ('status'), ('rating'), ('downloads')) AS cols(column_name)
-GROUP BY column_name
+-- SQLite没有内置的selectivity统计，需要手动计算
+WITH column_stats AS (
+    SELECT 
+        'status' as column_name,
+        COUNT(DISTINCT status) as distinct_values,
+        COUNT(*) as total_rows,
+        CAST(COUNT(DISTINCT status) AS REAL) / COUNT(*) as selectivity
+    FROM plugins
+    UNION ALL
+    SELECT 
+        'rating',
+        COUNT(DISTINCT CAST(rating * 10 AS INTEGER)),
+        COUNT(*),
+        CAST(COUNT(DISTINCT CAST(rating * 10 AS INTEGER)) AS REAL) / COUNT(*)
+    FROM plugins
+    UNION ALL
+    SELECT 
+        'downloads',
+        COUNT(DISTINCT downloads),
+        COUNT(*),
+        CAST(COUNT(DISTINCT downloads) AS REAL) / COUNT(*)
+    FROM plugins
+)
+SELECT * FROM column_stats
 ORDER BY selectivity DESC;
 ```
 
 ### 2. 查询优化技巧
 
-#### 使用EXPLAIN分析查询
+#### 使用EXPLAIN QUERY PLAN分析查询
 
 ```sql
 -- 分析查询执行计划
-EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) 
+EXPLAIN QUERY PLAN 
 SELECT p.*, COUNT(pr.id) as rating_count
 FROM plugins p
 LEFT JOIN plugin_ratings pr ON p.id = pr.plugin_id
@@ -109,11 +142,10 @@ LIMIT 20;
 ```
 
 **执行计划关键指标**:
-- **Cost**: 查询成本估算
-- **Rows**: 预估返回行数
-- **Actual Time**: 实际执行时间
-- **Buffers**: 缓冲区命中情况
-- **Index Usage**: 索引使用情况
+- **SCAN**: 全表扫描（应尽量避免）
+- **SEARCH**: 使用索引搜索
+- **USE INDEX**: 使用的索引名称
+- **USING TEMP B-TREE**: 临时排序操作
 
 #### 避免常见性能陷阱
 
@@ -153,7 +185,7 @@ FROM plugins WHERE id = 'plugin_id';
 SELECT * FROM plugins 
 WHERE status = 'active' OR status = 'deprecated';
 
--- ✅ 使用IN或UNION
+-- ✅ 使用IN
 SELECT * FROM plugins 
 WHERE status IN ('active', 'deprecated');
 
@@ -188,92 +220,101 @@ LIMIT 20;
 #### 插件搜索查询优化
 
 ```sql
--- 优化前的搜索查询
+-- 使用FTS5进行全文搜索优化
+-- 优化前的搜索查询（使用LIKE，性能差）
 SELECT p.*, 
-       ts_rank(to_tsvector('english', p.name || ' ' || COALESCE(p.description, '')), 
-               plainto_tsquery('english', $1)) as rank
+       0 as rank  -- SQLite没有内置排序函数
 FROM plugins p
-WHERE to_tsvector('english', p.name || ' ' || COALESCE(p.description, '')) 
-      @@ plainto_tsquery('english', $1)
+WHERE (p.name LIKE '%' || ? || '%' 
+       OR p.description LIKE '%' || ? || '%')
   AND p.status = 'active'
-ORDER BY rank DESC, p.downloads DESC
+ORDER BY p.downloads DESC
 LIMIT 20;
 
--- 优化后：预计算搜索向量
--- 1. 添加搜索向量字段
-ALTER TABLE plugins ADD COLUMN search_vector tsvector;
-
--- 2. 创建更新函数
-CREATE OR REPLACE FUNCTION update_plugin_search_vector()
-RETURNS TRIGGER AS $$
-BEGIN
-    NEW.search_vector := to_tsvector('english', 
-        NEW.name || ' ' || COALESCE(NEW.description, '') || ' ' || 
-        COALESCE(NEW.author, '') || ' ' || 
-        COALESCE(array_to_string(
-            (SELECT array_agg(tag) FROM plugin_tags WHERE plugin_id = NEW.id), 
-            ' '
-        ), '')
-    );
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
--- 3. 创建触发器
-CREATE TRIGGER plugin_search_vector_update
-    BEFORE INSERT OR UPDATE ON plugins
-    FOR EACH ROW EXECUTE FUNCTION update_plugin_search_vector();
-
--- 4. 创建GIN索引
-CREATE INDEX idx_plugins_search_vector ON plugins USING gin(search_vector);
-
--- 5. 优化后的查询
+-- 优化后：使用FTS5全文搜索
 SELECT p.*, 
-       ts_rank(p.search_vector, plainto_tsquery('english', $1)) as rank
-FROM plugins p
-WHERE p.search_vector @@ plainto_tsquery('english', $1)
+       plugins_fts.rank
+FROM plugins_fts 
+JOIN plugins p ON plugins_fts.rowid = p.id
+WHERE plugins_fts MATCH ? 
   AND p.status = 'active'
-ORDER BY rank DESC, p.downloads DESC
+ORDER BY plugins_fts.rank, p.downloads DESC
+LIMIT 20;
+
+-- 高级FTS5查询示例
+-- 搜索包含多个词的插件
+SELECT p.*, plugins_fts.rank
+FROM plugins_fts 
+JOIN plugins p ON plugins_fts.rowid = p.id
+WHERE plugins_fts MATCH 'editor AND syntax'
+  AND p.status = 'active'
+ORDER BY plugins_fts.rank DESC
+LIMIT 20;
+
+-- 短语搜索
+SELECT p.*, plugins_fts.rank
+FROM plugins_fts 
+JOIN plugins p ON plugins_fts.rowid = p.id
+WHERE plugins_fts MATCH '"code editor"'
+  AND p.status = 'active'
+ORDER BY plugins_fts.rank DESC
+LIMIT 20;
+
+-- 字段特定搜索
+SELECT p.*, plugins_fts.rank
+FROM plugins_fts 
+JOIN plugins p ON plugins_fts.rowid = p.id
+WHERE plugins_fts MATCH 'name:editor OR description:syntax'
+  AND p.status = 'active'
+ORDER BY plugins_fts.rank DESC
 LIMIT 20;
 ```
 
 #### 统计查询优化
 
 ```sql
--- 优化仪表板统计查询
--- 创建物化视图定期更新统计数据
-CREATE MATERIALIZED VIEW dashboard_stats AS
+-- 使用视图预计算统计数据
+CREATE VIEW dashboard_stats_view AS
 SELECT 
-    (SELECT COUNT(*) FROM users WHERE is_active = true) as total_users,
+    (SELECT COUNT(*) FROM users WHERE is_active = 1) as total_users,
     (SELECT COUNT(*) FROM plugins WHERE status = 'active') as total_plugins,
     (SELECT COALESCE(SUM(downloads), 0) FROM plugins) as total_downloads,
-    (SELECT COUNT(*) FROM plugins WHERE created_at >= CURRENT_DATE - INTERVAL '7 days') as weekly_new_plugins,
-    (SELECT COUNT(*) FROM users WHERE created_at >= CURRENT_DATE - INTERVAL '7 days') as weekly_new_users,
-    NOW() as last_updated;
+    (SELECT COUNT(*) FROM plugins WHERE created_at >= datetime('now', '-7 days')) as weekly_new_plugins,
+    (SELECT COUNT(*) FROM users WHERE created_at >= datetime('now', '-7 days')) as weekly_new_users,
+    datetime('now') as last_updated;
 
--- 创建索引
-CREATE UNIQUE INDEX idx_dashboard_stats_unique ON dashboard_stats(last_updated);
+-- 对于经常变化的统计数据，可以使用缓存表
+CREATE TABLE dashboard_stats_cache (
+    stat_name TEXT PRIMARY KEY,
+    stat_value INTEGER,
+    last_updated DATETIME DEFAULT CURRENT_TIMESTAMP
+);
 
--- 定期刷新统计数据（通过定时任务）
-REFRESH MATERIALIZED VIEW CONCURRENTLY dashboard_stats;
+-- 更新统计缓存的存储过程（通过应用层定期执行）
+INSERT OR REPLACE INTO dashboard_stats_cache (stat_name, stat_value, last_updated)
+VALUES 
+    ('total_users', (SELECT COUNT(*) FROM users WHERE is_active = 1), datetime('now')),
+    ('total_plugins', (SELECT COUNT(*) FROM plugins WHERE status = 'active'), datetime('now')),
+    ('total_downloads', (SELECT COALESCE(SUM(downloads), 0) FROM plugins), datetime('now'));
 
 -- 快速查询统计数据
-SELECT * FROM dashboard_stats;
+SELECT stat_name, stat_value, last_updated 
+FROM dashboard_stats_cache;
 ```
 
-## 连接池优化
+## 连接管理优化
 
 ### 1. SQLx连接池配置
 
 ```rust
-use sqlx::postgres::PgPoolOptions;
+use sqlx::sqlite::SqlitePoolOptions;
 use std::time::Duration;
 
-pub async fn create_database_pool(database_url: &str) -> Result<PgPool, sqlx::Error> {
-    PgPoolOptions::new()
+pub async fn create_database_pool(database_url: &str) -> Result<SqlitePool, sqlx::Error> {
+    SqlitePoolOptions::new()
         // 连接池大小配置
         .max_connections(20)                    // 最大连接数
-        .min_connections(5)                     // 最小连接数
+        .min_connections(1)                     // 最小连接数（SQLite通常保持较少连接）
         
         // 超时配置
         .acquire_timeout(Duration::from_secs(30))   // 获取连接超时
@@ -283,14 +324,35 @@ pub async fn create_database_pool(database_url: &str) -> Result<PgPool, sqlx::Er
         // 连接测试
         .test_before_acquire(true)              // 获取前测试连接
         
-        // 连接配置
+        // SQLite特定配置
         .after_connect(|conn, _meta| Box::pin(async move {
-            // 设置连接级别的参数
-            sqlx::query("SET application_name = 'geektools-marketplace'")
+            // 启用WAL模式提高并发性能
+            sqlx::query("PRAGMA journal_mode = WAL")
                 .execute(conn)
                 .await?;
             
-            sqlx::query("SET timezone = 'UTC'")
+            // 设置同步模式为NORMAL（平衡性能和安全性）
+            sqlx::query("PRAGMA synchronous = NORMAL")
+                .execute(conn)
+                .await?;
+            
+            // 设置缓存大小（以KB为单位）
+            sqlx::query("PRAGMA cache_size = -64000")  // 64MB缓存
+                .execute(conn)
+                .await?;
+            
+            // 设置临时存储为内存
+            sqlx::query("PRAGMA temp_store = MEMORY")
+                .execute(conn)
+                .await?;
+            
+            // 启用外键约束
+            sqlx::query("PRAGMA foreign_keys = ON")
+                .execute(conn)
+                .await?;
+            
+            // 设置繁忙超时
+            sqlx::query("PRAGMA busy_timeout = 30000")  // 30秒
                 .execute(conn)
                 .await?;
                 
@@ -305,13 +367,13 @@ pub async fn create_database_pool(database_url: &str) -> Result<PgPool, sqlx::Er
 ### 2. 连接池监控
 
 ```rust
-// 连接池健康检查
-pub struct PoolMonitor {
-    pool: PgPool,
+// SQLite连接池健康检查
+pub struct SqlitePoolMonitor {
+    pool: SqlitePool,
 }
 
-impl PoolMonitor {
-    pub fn new(pool: PgPool) -> Self {
+impl SqlitePoolMonitor {
+    pub fn new(pool: SqlitePool) -> Self {
         Self { pool }
     }
     
@@ -335,47 +397,94 @@ impl PoolMonitor {
             
         Ok(start.elapsed())
     }
+    
+    pub async fn get_sqlite_status(&self) -> Result<SqliteStatus, sqlx::Error> {
+        let result = sqlx::query!(
+            r#"
+            PRAGMA database_list;
+            PRAGMA cache_size;
+            PRAGMA page_count;
+            PRAGMA page_size;
+            PRAGMA freelist_count;
+            "#
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        
+        // 获取数据库大小信息
+        let page_count: i64 = sqlx::query_scalar("PRAGMA page_count")
+            .fetch_one(&self.pool)
+            .await?;
+            
+        let page_size: i64 = sqlx::query_scalar("PRAGMA page_size")
+            .fetch_one(&self.pool)
+            .await?;
+            
+        let freelist_count: i64 = sqlx::query_scalar("PRAGMA freelist_count")
+            .fetch_one(&self.pool)
+            .await?;
+            
+        Ok(SqliteStatus {
+            page_count,
+            page_size,
+            database_size_bytes: page_count * page_size,
+            freelist_count,
+            fragmentation_ratio: freelist_count as f64 / page_count as f64,
+        })
+    }
 }
 
 #[derive(Debug, Serialize)]
-pub struct PoolStatus {
-    pub connections: u32,
-    pub idle_connections: u32,
-    pub max_connections: u32,
-    pub utilization: f64,
+pub struct SqliteStatus {
+    pub page_count: i64,
+    pub page_size: i64,
+    pub database_size_bytes: i64,
+    pub freelist_count: i64,
+    pub fragmentation_ratio: f64,
 }
 ```
 
-### 3. 连接泄漏检测
+### 3. SQLite性能优化配置
 
 ```rust
-// 连接使用模式分析
-pub async fn analyze_connection_usage(pool: &PgPool) {
-    // 定期收集连接池状态
-    let mut interval = tokio::time::interval(Duration::from_secs(60));
+// SQLite性能优化PRAGMA设置
+pub async fn optimize_sqlite_connection(conn: &mut SqliteConnection) -> Result<(), sqlx::Error> {
+    // WAL模式提高并发读写性能
+    sqlx::query("PRAGMA journal_mode = WAL")
+        .execute(&mut *conn)
+        .await?;
     
-    loop {
-        interval.tick().await;
-        
-        let state = pool.state();
-        
-        // 记录连接池状态
-        info!(
-            "Pool status - Total: {}, Idle: {}, Utilization: {:.1}%",
-            state.connections,
-            state.idle_connections,
-            (state.connections as f64 / state.max_connections as f64) * 100.0
-        );
-        
-        // 检测异常情况
-        if state.connections >= state.max_connections {
-            warn!("Connection pool exhausted!");
-        }
-        
-        if state.idle_connections == 0 && state.connections > 0 {
-            warn!("No idle connections available");
-        }
-    }
+    // 同步模式设置
+    sqlx::query("PRAGMA synchronous = NORMAL")  // 或 PRAGMA synchronous = OFF 用于最大性能
+        .execute(&mut *conn)
+        .await?;
+    
+    // 缓存配置
+    sqlx::query("PRAGMA cache_size = -64000")   // 64MB缓存
+        .execute(&mut *conn)
+        .await?;
+    
+    // 内存临时存储
+    sqlx::query("PRAGMA temp_store = MEMORY")
+        .execute(&mut *conn)
+        .await?;
+    
+    // 内存映射大小（提高大文件性能）
+    sqlx::query("PRAGMA mmap_size = 268435456") // 256MB
+        .execute(&mut *conn)
+        .await?;
+    
+    // 自动清理设置
+    sqlx::query("PRAGMA auto_vacuum = INCREMENTAL")
+        .execute(&mut *conn)
+        .await?;
+    
+    // 分析表统计信息
+    sqlx::query("PRAGMA optimize")
+        .execute(&mut *conn)
+        .await?;
+    
+    Ok(())
 }
 ```
 
@@ -440,15 +549,15 @@ where
     }
 }
 
-// 在服务中使用缓存
-pub struct CachedPluginService {
-    pool: PgPool,
+// SQLite缓存服务
+pub struct CachedSqliteService {
+    pool: SqlitePool,
     plugin_cache: MemoryCache<String, Plugin>,
     stats_cache: MemoryCache<String, DashboardStats>,
 }
 
-impl CachedPluginService {
-    pub fn new(pool: PgPool) -> Self {
+impl CachedSqliteService {
+    pub fn new(pool: SqlitePool) -> Self {
         Self {
             pool,
             plugin_cache: MemoryCache::new(Duration::from_secs(300)), // 5分钟TTL
@@ -474,7 +583,7 @@ impl CachedPluginService {
     async fn get_plugin_from_db(&self, plugin_id: &str) -> Result<Plugin, ServiceError> {
         sqlx::query_as!(
             Plugin,
-            "SELECT * FROM plugins WHERE id = $1",
+            "SELECT * FROM plugins WHERE id = ?",
             plugin_id
         )
         .fetch_one(&self.pool)
@@ -484,30 +593,46 @@ impl CachedPluginService {
 }
 ```
 
-### 2. 查询结果缓存
+### 2. SQLite查询结果缓存
 
 ```sql
--- 使用PostgreSQL的查询结果缓存
--- 设置shared_preload_libraries = 'pg_stat_statements'
+-- SQLite不像PostgreSQL有内置的查询结果缓存
+-- 可以通过应用层或数据库视图实现类似功能
 
--- 分析缓存命中率
-SELECT 
-    schemaname,
-    tablename,
-    heap_blks_read,
-    heap_blks_hit,
-    CASE 
-        WHEN heap_blks_hit + heap_blks_read = 0 THEN 0
-        ELSE round(heap_blks_hit::numeric / (heap_blks_hit + heap_blks_read) * 100, 2)
-    END as cache_hit_ratio
-FROM pg_statio_user_tables
-ORDER BY cache_hit_ratio DESC;
+-- 创建缓存表存储频繁查询的结果
+CREATE TABLE query_cache (
+    cache_key TEXT PRIMARY KEY,
+    cache_data TEXT,  -- JSON格式的缓存数据
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    expires_at DATETIME
+);
 
--- 优化缓存配置
--- postgresql.conf
-shared_buffers = 256MB          -- 共享缓冲区大小
-effective_cache_size = 1GB      -- 系统缓存大小
-random_page_cost = 1.1          -- 随机页面读取成本
+-- 创建索引加速缓存查询
+CREATE INDEX idx_query_cache_expires ON query_cache(expires_at);
+
+-- 缓存热门插件列表
+INSERT OR REPLACE INTO query_cache (cache_key, cache_data, expires_at)
+VALUES (
+    'popular_plugins_24h',
+    (SELECT json_group_array(
+        json_object(
+            'id', id,
+            'name', name,
+            'rating', rating,
+            'downloads', downloads
+        )
+    ) FROM plugins 
+    WHERE status = 'active' 
+    ORDER BY downloads DESC 
+    LIMIT 20),
+    datetime('now', '+1 hour')
+);
+
+-- 查询缓存数据
+SELECT cache_data 
+FROM query_cache 
+WHERE cache_key = 'popular_plugins_24h' 
+  AND expires_at > datetime('now');
 ```
 
 ### 3. Redis集成缓存
@@ -568,14 +693,15 @@ impl RedisCache {
     }
 }
 
-// 分层缓存策略
-pub struct TieredCache {
+// SQLite + Redis分层缓存策略
+pub struct TieredSqliteCache {
     memory_cache: MemoryCache<String, String>,
     redis_cache: RedisCache,
+    sqlite_pool: SqlitePool,
 }
 
-impl TieredCache {
-    pub async fn get<T>(&self, key: &str) -> Result<Option<T>, CacheError>
+impl TieredSqliteCache {
+    pub async fn get<T>(&self, key: &str, db_query: impl Fn(&SqlitePool) -> BoxFuture<Result<T, sqlx::Error>>) -> Result<Option<T>, CacheError>
     where
         T: for<'de> Deserialize<'de> + Serialize + Clone,
     {
@@ -593,6 +719,16 @@ impl TieredCache {
             return Ok(Some(value));
         }
         
+        // L3: SQLite数据库
+        let db_result = db_query(&self.sqlite_pool).await;
+        if let Ok(value) = db_result {
+            // 存储到所有缓存层
+            let json = serde_json::to_string(&value)?;
+            self.memory_cache.insert(key.to_string(), json.clone());
+            self.redis_cache.set(key, &value, 3600).await?; // 1小时TTL
+            return Ok(Some(value));
+        }
+        
         Ok(None)
     }
 }
@@ -600,55 +736,47 @@ impl TieredCache {
 
 ## 监控和诊断
 
-### 1. 性能监控查询
+### 1. SQLite性能监控
 
 ```sql
--- 慢查询分析
+-- SQLite性能分析查询
+-- 分析表大小和页面使用情况
 SELECT 
-    query,
-    calls,
-    total_time,
-    mean_time,
-    stddev_time,
-    rows,
-    100.0 * shared_blks_hit / nullif(shared_blks_hit + shared_blks_read, 0) AS hit_percent
-FROM pg_stat_statements
-ORDER BY mean_time DESC
-LIMIT 20;
+    name as table_name,
+    tbl_name,
+    CAST(COUNT(*) AS INTEGER) * 
+    (SELECT CAST(value AS INTEGER) FROM pragma_page_size()) as estimated_size_bytes
+FROM sqlite_master 
+WHERE type = 'table'
+GROUP BY name, tbl_name;
 
--- 表访问统计
-SELECT 
-    schemaname,
-    tablename,
-    seq_scan,                    -- 顺序扫描次数
-    seq_tup_read,               -- 顺序扫描读取行数
-    idx_scan,                   -- 索引扫描次数
-    idx_tup_fetch,              -- 索引扫描获取行数
-    n_tup_ins + n_tup_upd + n_tup_del as total_modifications
-FROM pg_stat_user_tables
-ORDER BY seq_scan DESC;
+-- 分析索引使用情况（需要开启统计）
+PRAGMA stats = ON;
 
--- 索引使用率分析
-SELECT 
-    schemaname,
-    tablename,
-    indexname,
-    idx_scan,                   -- 索引使用次数
-    idx_tup_read,              -- 索引读取行数
-    idx_tup_fetch              -- 索引获取行数
-FROM pg_stat_user_indexes
-WHERE idx_scan = 0             -- 找出未使用的索引
-ORDER BY schemaname, tablename;
+-- 检查数据库完整性
+PRAGMA integrity_check;
 
--- 数据库大小监控
-SELECT 
-    tablename,
-    pg_size_pretty(pg_total_relation_size(schemaname||'.'||tablename)) as total_size,
-    pg_size_pretty(pg_relation_size(schemaname||'.'||tablename)) as table_size,
-    pg_size_pretty(pg_total_relation_size(schemaname||'.'||tablename) - pg_relation_size(schemaname||'.'||tablename)) as index_size
-FROM pg_tables 
-WHERE schemaname = 'public'
-ORDER BY pg_total_relation_size(schemaname||'.'||tablename) DESC;
+-- 快速检查
+PRAGMA quick_check;
+
+-- 分析数据库统计信息
+PRAGMA table_info(plugins);
+PRAGMA index_list(plugins);
+PRAGMA index_info(idx_plugins_status);
+
+-- 查看编译选项
+PRAGMA compile_options;
+
+-- WAL模式状态检查
+PRAGMA journal_mode;
+PRAGMA wal_checkpoint;
+
+-- 缓存统计
+PRAGMA cache_size;
+PRAGMA cache_spill;
+
+-- 分析查询计划
+EXPLAIN QUERY PLAN SELECT * FROM plugins WHERE status = 'active';
 ```
 
 ### 2. 实时性能监控
@@ -657,17 +785,17 @@ ORDER BY pg_total_relation_size(schemaname||'.'||tablename) DESC;
 use std::time::Instant;
 use tracing::{info, warn};
 
-// 查询性能监控中间件
-pub struct QueryMonitor;
+// SQLite查询性能监控
+pub struct SqliteQueryMonitor;
 
-impl QueryMonitor {
+impl SqliteQueryMonitor {
     pub async fn execute_with_monitoring<T>(
-        pool: &PgPool,
+        pool: &SqlitePool,
         query: &str,
         operation_name: &str,
     ) -> Result<T, sqlx::Error>
     where
-        T: for<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> + Send + Unpin,
+        T: for<'r> sqlx::FromRow<'r, sqlx::sqlite::SqliteRow> + Send + Unpin,
     {
         let start = Instant::now();
         
@@ -683,13 +811,13 @@ impl QueryMonitor {
                 operation = operation_name,
                 duration_ms = duration.as_millis(),
                 query = query,
-                "Slow query detected"
+                "Slow SQLite query detected"
             );
         } else {
             info!(
                 operation = operation_name,
                 duration_ms = duration.as_millis(),
-                "Query executed"
+                "SQLite query executed"
             );
         }
         
@@ -697,210 +825,330 @@ impl QueryMonitor {
     }
 }
 
-// 性能指标收集
-pub struct DatabaseMetrics {
-    pool: PgPool,
+// SQLite性能指标收集
+pub struct SqliteMetrics {
+    pool: SqlitePool,
 }
 
-impl DatabaseMetrics {
-    pub async fn collect_metrics(&self) -> DatabaseMetricsData {
-        let connection_stats = self.get_connection_stats().await;
-        let query_stats = self.get_query_stats().await;
-        let table_stats = self.get_table_stats().await;
+impl SqliteMetrics {
+    pub async fn collect_metrics(&self) -> SqliteMetricsData {
+        let database_stats = self.get_database_stats().await;
+        let performance_stats = self.get_performance_stats().await;
         
-        DatabaseMetricsData {
-            connection_stats,
-            query_stats,
-            table_stats,
+        SqliteMetricsData {
+            database_stats,
+            performance_stats,
             collected_at: chrono::Utc::now(),
         }
     }
     
-    async fn get_connection_stats(&self) -> ConnectionStats {
-        let result = sqlx::query!(
-            r#"
-            SELECT 
-                COUNT(*) as total_connections,
-                COUNT(*) FILTER (WHERE state = 'active') as active_connections,
-                COUNT(*) FILTER (WHERE state = 'idle') as idle_connections
-            FROM pg_stat_activity
-            WHERE datname = current_database()
-            "#
-        )
-        .fetch_one(&self.pool)
-        .await
-        .unwrap_or_default();
-        
-        ConnectionStats {
-            total: result.total_connections.unwrap_or(0) as u32,
-            active: result.active_connections.unwrap_or(0) as u32,
-            idle: result.idle_connections.unwrap_or(0) as u32,
+    async fn get_database_stats(&self) -> DatabaseStats {
+        let page_count: i64 = sqlx::query_scalar("PRAGMA page_count")
+            .fetch_one(&self.pool)
+            .await
+            .unwrap_or(0);
+            
+        let page_size: i64 = sqlx::query_scalar("PRAGMA page_size")
+            .fetch_one(&self.pool)
+            .await
+            .unwrap_or(4096);
+            
+        let freelist_count: i64 = sqlx::query_scalar("PRAGMA freelist_count")
+            .fetch_one(&self.pool)
+            .await
+            .unwrap_or(0);
+            
+        let cache_size: i64 = sqlx::query_scalar("PRAGMA cache_size")
+            .fetch_one(&self.pool)
+            .await
+            .unwrap_or(0);
+            
+        DatabaseStats {
+            total_pages: page_count,
+            page_size_bytes: page_size,
+            database_size_bytes: page_count * page_size,
+            free_pages: freelist_count,
+            fragmentation_ratio: if page_count > 0 {
+                freelist_count as f64 / page_count as f64
+            } else {
+                0.0
+            },
+            cache_size_pages: cache_size.abs(), // cache_size可能为负数（表示KB）
         }
     }
     
-    async fn get_query_stats(&self) -> Vec<QueryStat> {
-        sqlx::query!(
-            r#"
-            SELECT 
-                query,
-                calls,
-                total_time,
-                mean_time,
-                rows
-            FROM pg_stat_statements
-            ORDER BY mean_time DESC
-            LIMIT 10
-            "#
-        )
-        .fetch_all(&self.pool)
-        .await
-        .unwrap_or_default()
-        .into_iter()
-        .map(|row| QueryStat {
-            query: row.query.unwrap_or_default(),
-            calls: row.calls.unwrap_or(0) as u64,
-            total_time: row.total_time.unwrap_or(0.0),
-            mean_time: row.mean_time.unwrap_or(0.0),
-            rows: row.rows.unwrap_or(0) as u64,
-        })
-        .collect()
+    async fn get_performance_stats(&self) -> PerformanceStats {
+        // SQLite没有内置的查询统计，需要应用层收集
+        let pool_state = self.pool.state();
+        
+        PerformanceStats {
+            active_connections: pool_state.connections,
+            idle_connections: pool_state.idle_connections,
+            max_connections: pool_state.max_connections,
+            connection_utilization: pool_state.connections as f64 / pool_state.max_connections as f64,
+        }
     }
+}
+
+#[derive(Debug, Serialize)]
+pub struct SqliteMetricsData {
+    pub database_stats: DatabaseStats,
+    pub performance_stats: PerformanceStats,
+    pub collected_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct DatabaseStats {
+    pub total_pages: i64,
+    pub page_size_bytes: i64,
+    pub database_size_bytes: i64,
+    pub free_pages: i64,
+    pub fragmentation_ratio: f64,
+    pub cache_size_pages: i64,
 }
 ```
 
-### 3. 告警和报警
+### 3. SQLite健康检查和告警
 
 ```rust
-pub struct PerformanceAlerter {
-    thresholds: PerformanceThresholds,
+pub struct SqliteHealthChecker {
+    pool: SqlitePool,
+    thresholds: SqliteThresholds,
 }
 
 #[derive(Debug)]
-pub struct PerformanceThresholds {
+pub struct SqliteThresholds {
     pub slow_query_ms: u64,
+    pub database_size_mb: u64,
+    pub fragmentation_ratio: f64,
     pub connection_utilization: f64,
-    pub cache_hit_ratio: f64,
-    pub table_bloat_ratio: f64,
 }
 
-impl Default for PerformanceThresholds {
+impl Default for SqliteThresholds {
     fn default() -> Self {
         Self {
-            slow_query_ms: 1000,      // 1秒
-            connection_utilization: 0.8, // 80%
-            cache_hit_ratio: 0.95,    // 95%
-            table_bloat_ratio: 0.2,   // 20%
+            slow_query_ms: 500,           // 500ms
+            database_size_mb: 1000,       // 1GB
+            fragmentation_ratio: 0.15,    // 15%
+            connection_utilization: 0.8,   // 80%
         }
     }
 }
 
-impl PerformanceAlerter {
-    pub async fn check_performance(&self, metrics: &DatabaseMetricsData) {
-        // 检查连接池使用率
-        let pool_utilization = metrics.connection_stats.active as f64 
-            / (metrics.connection_stats.total as f64);
+impl SqliteHealthChecker {
+    pub async fn check_health(&self) -> Result<HealthReport, HealthCheckError> {
+        let mut issues = Vec::new();
+        let metrics = SqliteMetrics::new(self.pool.clone()).collect_metrics().await;
         
-        if pool_utilization > self.thresholds.connection_utilization {
-            self.send_alert(Alert {
-                severity: AlertSeverity::Warning,
+        // 检查数据库大小
+        let db_size_mb = metrics.database_stats.database_size_bytes / (1024 * 1024);
+        if db_size_mb > self.thresholds.database_size_mb as i64 {
+            issues.push(HealthIssue {
+                severity: Severity::Warning,
+                category: Category::Storage,
+                message: format!("Database size ({} MB) exceeds threshold", db_size_mb),
+            });
+        }
+        
+        // 检查碎片化程度
+        if metrics.database_stats.fragmentation_ratio > self.thresholds.fragmentation_ratio {
+            issues.push(HealthIssue {
+                severity: Severity::Warning,
+                category: Category::Performance,
                 message: format!(
-                    "High connection pool utilization: {:.1}%",
-                    pool_utilization * 100.0
+                    "Database fragmentation ({:.1}%) exceeds threshold",
+                    metrics.database_stats.fragmentation_ratio * 100.0
                 ),
-                category: AlertCategory::ConnectionPool,
-            }).await;
+                recommendation: Some("Consider running VACUUM to defragment the database".to_string()),
+            });
         }
         
-        // 检查慢查询
-        for query_stat in &metrics.query_stats {
-            if query_stat.mean_time > self.thresholds.slow_query_ms as f64 {
-                self.send_alert(Alert {
-                    severity: AlertSeverity::Warning,
-                    message: format!(
-                        "Slow query detected: {:.2}ms average time",
-                        query_stat.mean_time
-                    ),
-                    category: AlertCategory::SlowQuery,
-                }).await;
-            }
+        // 检查连接池使用率
+        if metrics.performance_stats.connection_utilization > self.thresholds.connection_utilization {
+            issues.push(HealthIssue {
+                severity: Severity::Warning,
+                category: Category::Connections,
+                message: format!(
+                    "Connection utilization ({:.1}%) is high",
+                    metrics.performance_stats.connection_utilization * 100.0
+                ),
+            });
         }
+        
+        Ok(HealthReport {
+            status: if issues.is_empty() { HealthStatus::Healthy } else { HealthStatus::Warning },
+            issues,
+            metrics,
+        })
     }
     
-    async fn send_alert(&self, alert: Alert) {
-        // 实现告警发送逻辑
-        // 可以发送到Slack、邮件、监控系统等
-        warn!(
-            severity = ?alert.severity,
-            category = ?alert.category,
-            message = alert.message,
-            "Performance alert triggered"
-        );
+    pub async fn perform_maintenance(&self) -> Result<MaintenanceReport, MaintenanceError> {
+        let mut actions = Vec::new();
+        
+        // 执行VACUUM清理碎片
+        let start = Instant::now();
+        sqlx::query("VACUUM")
+            .execute(&self.pool)
+            .await?;
+        actions.push(MaintenanceAction {
+            action_type: ActionType::Vacuum,
+            duration: start.elapsed(),
+            result: "Database defragmented successfully".to_string(),
+        });
+        
+        // 更新统计信息
+        let start = Instant::now();
+        sqlx::query("PRAGMA optimize")
+            .execute(&self.pool)
+            .await?;
+        actions.push(MaintenanceAction {
+            action_type: ActionType::Analyze,
+            duration: start.elapsed(),
+            result: "Statistics updated successfully".to_string(),
+        });
+        
+        // 检查数据库完整性
+        let start = Instant::now();
+        let integrity_result: String = sqlx::query_scalar("PRAGMA integrity_check")
+            .fetch_one(&self.pool)
+            .await?;
+        actions.push(MaintenanceAction {
+            action_type: ActionType::IntegrityCheck,
+            duration: start.elapsed(),
+            result: integrity_result,
+        });
+        
+        Ok(MaintenanceReport {
+            performed_at: chrono::Utc::now(),
+            actions,
+        })
     }
 }
 ```
 
 ## 压力测试和基准测试
 
-### 1. 数据库压测
+### 1. SQLite基准测试
 
 ```bash
 #!/bin/bash
-# 数据库压力测试脚本
+# SQLite性能测试脚本
 
-# 使用pgbench进行基准测试
-DATABASE_URL="postgres://user:pass@localhost:5432/marketplace"
+DATABASE_FILE="./test_performance.db"
+TEST_DATA_SIZE=10000
 
-# 初始化测试数据
-pgbench -i -s 10 $DATABASE_URL
+# 清理旧的测试数据
+rm -f $DATABASE_FILE
 
-# 运行标准测试
-echo "Running standard benchmark..."
-pgbench -c 10 -j 2 -t 1000 $DATABASE_URL
+# 创建测试表
+sqlite3 $DATABASE_FILE << EOF
+CREATE TABLE test_plugins (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT,
+    author TEXT NOT NULL,
+    rating REAL DEFAULT 0.0,
+    downloads INTEGER DEFAULT 0,
+    status TEXT DEFAULT 'active',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
 
-# 自定义测试脚本
-cat > custom_test.sql << EOF
-\set plugin_id random(1, 1000)
-SELECT * FROM plugins WHERE id = :plugin_id;
-INSERT INTO plugin_ratings (plugin_id, user_id, rating, review) 
-VALUES (:plugin_id, :plugin_id, random(1, 5), 'Test review');
+CREATE INDEX idx_test_status ON test_plugins(status);
+CREATE INDEX idx_test_rating ON test_plugins(rating DESC);
+CREATE INDEX idx_test_downloads ON test_plugins(downloads DESC);
 EOF
 
-# 运行自定义测试
-pgbench -c 20 -j 4 -t 500 -f custom_test.sql $DATABASE_URL
+# 插入测试数据
+echo "Inserting $TEST_DATA_SIZE test records..."
+time sqlite3 $DATABASE_FILE << EOF
+BEGIN TRANSACTION;
+$(for i in $(seq 1 $TEST_DATA_SIZE); do
+    echo "INSERT INTO test_plugins (id, name, description, author, rating, downloads) VALUES ('plugin_$i', 'Test Plugin $i', 'Description for plugin $i', 'Author $i', $((RANDOM % 50 + 10))/10.0, $((RANDOM % 10000)));"
+done)
+COMMIT;
+EOF
+
+# 执行查询性能测试
+echo "Running query performance tests..."
+
+# 测试简单查询
+echo "Simple SELECT test:"
+time sqlite3 $DATABASE_FILE "SELECT COUNT(*) FROM test_plugins;"
+
+# 测试带WHERE条件的查询
+echo "WHERE clause test:"
+time sqlite3 $DATABASE_FILE "SELECT * FROM test_plugins WHERE status = 'active' LIMIT 100;"
+
+# 测试排序查询
+echo "ORDER BY test:"
+time sqlite3 $DATABASE_FILE "SELECT * FROM test_plugins ORDER BY downloads DESC LIMIT 100;"
+
+# 测试聚合查询
+echo "Aggregation test:"
+time sqlite3 $DATABASE_FILE "SELECT status, COUNT(*), AVG(rating) FROM test_plugins GROUP BY status;"
+
+# 测试复杂JOIN查询（如果有关联表）
+echo "Complex query test:"
+time sqlite3 $DATABASE_FILE "SELECT * FROM test_plugins WHERE rating > 4.0 AND downloads > 1000 ORDER BY rating DESC, downloads DESC LIMIT 50;"
+
+# 清理测试数据
+rm -f $DATABASE_FILE
+echo "Performance test completed."
 ```
 
-### 2. 应用层压测
+### 2. 应用层压力测试
 
 ```rust
 use tokio::time::{Duration, Instant};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use sqlx::SqlitePool;
 
-pub struct LoadTester {
-    pool: PgPool,
-    stats: Arc<TestStats>,
+pub struct SqliteLoadTester {
+    pool: SqlitePool,
+    stats: Arc<LoadTestStats>,
 }
 
 #[derive(Default)]
-pub struct TestStats {
+pub struct LoadTestStats {
     pub total_requests: AtomicU64,
     pub successful_requests: AtomicU64,
     pub failed_requests: AtomicU64,
     pub total_duration_ms: AtomicU64,
+    pub read_operations: AtomicU64,
+    pub write_operations: AtomicU64,
 }
 
-impl LoadTester {
-    pub async fn run_load_test(&self, concurrent_users: usize, duration: Duration) {
+impl SqliteLoadTester {
+    pub async fn run_mixed_load_test(&self, concurrent_users: usize, duration: Duration) {
         let start_time = Instant::now();
         let mut handles = Vec::new();
         
-        for _ in 0..concurrent_users {
+        // 80% 读操作，20% 写操作
+        let read_users = (concurrent_users as f64 * 0.8) as usize;
+        let write_users = concurrent_users - read_users;
+        
+        // 启动读操作用户
+        for _ in 0..read_users {
             let pool = self.pool.clone();
             let stats = self.stats.clone();
             let test_duration = duration;
             
             let handle = tokio::spawn(async move {
-                Self::user_simulation(pool, stats, test_duration).await;
+                Self::read_user_simulation(pool, stats, test_duration).await;
+            });
+            
+            handles.push(handle);
+        }
+        
+        // 启动写操作用户
+        for user_id in 0..write_users {
+            let pool = self.pool.clone();
+            let stats = self.stats.clone();
+            let test_duration = duration;
+            
+            let handle = tokio::spawn(async move {
+                Self::write_user_simulation(pool, stats, test_duration, user_id).await;
             });
             
             handles.push(handle);
@@ -914,18 +1162,70 @@ impl LoadTester {
         self.print_results(start_time.elapsed()).await;
     }
     
-    async fn user_simulation(pool: PgPool, stats: Arc<TestStats>, duration: Duration) {
+    async fn read_user_simulation(pool: SqlitePool, stats: Arc<LoadTestStats>, duration: Duration) {
         let start = Instant::now();
         
         while start.elapsed() < duration {
             let request_start = Instant::now();
             stats.total_requests.fetch_add(1, Ordering::Relaxed);
+            stats.read_operations.fetch_add(1, Ordering::Relaxed);
             
-            // 模拟用户操作：搜索插件
+            // 模拟各种读操作
+            let operations = [
+                // 热门插件查询
+                "SELECT id, name, rating, downloads FROM plugins WHERE status = 'active' ORDER BY downloads DESC LIMIT 20",
+                // 按评分查询
+                "SELECT id, name, rating FROM plugins WHERE rating >= 4.0 ORDER BY rating DESC LIMIT 10",
+                // 特定插件查询
+                "SELECT * FROM plugins WHERE id = 'plugin_1'",
+                // 统计查询
+                "SELECT COUNT(*) as total, AVG(rating) as avg_rating FROM plugins WHERE status = 'active'",
+            ];
+            
+            let query = operations[fastrand::usize(0..operations.len())];
+            let result = sqlx::query(query).fetch_all(&pool).await;
+            
+            let request_duration = request_start.elapsed();
+            stats.total_duration_ms.fetch_add(request_duration.as_millis() as u64, Ordering::Relaxed);
+            
+            match result {
+                Ok(_) => {
+                    stats.successful_requests.fetch_add(1, Ordering::Relaxed);
+                }
+                Err(e) => {
+                    stats.failed_requests.fetch_add(1, Ordering::Relaxed);
+                    eprintln!("Read request failed: {}", e);
+                }
+            }
+            
+            // 模拟用户思考时间
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    }
+    
+    async fn write_user_simulation(pool: SqlitePool, stats: Arc<LoadTestStats>, duration: Duration, user_id: usize) {
+        let start = Instant::now();
+        let mut operation_counter = 0;
+        
+        while start.elapsed() < duration {
+            let request_start = Instant::now();
+            stats.total_requests.fetch_add(1, Ordering::Relaxed);
+            stats.write_operations.fetch_add(1, Ordering::Relaxed);
+            operation_counter += 1;
+            
+            // 模拟写操作：插入评分
+            let plugin_id = format!("plugin_{}", fastrand::u32(1..=1000));
+            let rating = fastrand::f32() * 4.0 + 1.0; // 1.0-5.0
+            let review = format!("Test review {} from user {}", operation_counter, user_id);
+            
             let result = sqlx::query!(
-                "SELECT id, name, rating FROM plugins WHERE status = 'active' ORDER BY downloads DESC LIMIT 10"
+                "INSERT INTO plugin_ratings (plugin_id, user_id, rating, review, created_at) VALUES (?, ?, ?, ?, datetime('now'))",
+                plugin_id,
+                format!("user_{}", user_id),
+                rating,
+                review
             )
-            .fetch_all(&pool)
+            .execute(&pool)
             .await;
             
             let request_duration = request_start.elapsed();
@@ -937,12 +1237,12 @@ impl LoadTester {
                 }
                 Err(e) => {
                     stats.failed_requests.fetch_add(1, Ordering::Relaxed);
-                    eprintln!("Request failed: {}", e);
+                    eprintln!("Write request failed: {}", e);
                 }
             }
             
-            // 模拟用户思考时间
-            tokio::time::sleep(Duration::from_millis(100)).await;
+            // 写操作间隔较长
+            tokio::time::sleep(Duration::from_millis(200)).await;
         }
     }
     
@@ -951,8 +1251,10 @@ impl LoadTester {
         let successful = self.stats.successful_requests.load(Ordering::Relaxed);
         let failed = self.stats.failed_requests.load(Ordering::Relaxed);
         let total_time_ms = self.stats.total_duration_ms.load(Ordering::Relaxed);
+        let read_ops = self.stats.read_operations.load(Ordering::Relaxed);
+        let write_ops = self.stats.write_operations.load(Ordering::Relaxed);
         
-        println!("=== Load Test Results ===");
+        println!("=== SQLite Load Test Results ===");
         println!("Total Duration: {:.2}s", total_duration.as_secs_f64());
         println!("Total Requests: {}", total);
         println!("Successful Requests: {}", successful);
@@ -960,47 +1262,64 @@ impl LoadTester {
         println!("Success Rate: {:.2}%", (successful as f64 / total as f64) * 100.0);
         println!("Average Response Time: {:.2}ms", total_time_ms as f64 / total as f64);
         println!("Requests per Second: {:.2}", total as f64 / total_duration.as_secs_f64());
+        println!("Read Operations: {} ({:.1}%)", read_ops, (read_ops as f64 / total as f64) * 100.0);
+        println!("Write Operations: {} ({:.1}%)", write_ops, (write_ops as f64 / total as f64) * 100.0);
     }
 }
 
 // 使用示例
 #[tokio::main]
-async fn main() {
-    let pool = create_database_pool("postgres://...").await.unwrap();
-    let load_tester = LoadTester {
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let pool = create_database_pool("sqlite:./test.db").await?;
+    let load_tester = SqliteLoadTester {
         pool,
-        stats: Arc::new(TestStats::default()),
+        stats: Arc::new(LoadTestStats::default()),
     };
     
-    // 运行10个并发用户，持续60秒的负载测试
-    load_tester.run_load_test(10, Duration::from_secs(60)).await;
+    // 运行混合负载测试：10个用户，持续60秒
+    load_tester.run_mixed_load_test(10, Duration::from_secs(60)).await;
+    
+    Ok(())
 }
 ```
 
-## 性能优化清单
+## SQLite性能优化清单
 
 ### 数据库层面
 
-- [ ] **索引优化**: 分析查询模式，创建合适的索引
-- [ ] **查询优化**: 避免N+1查询，使用适当的JOIN
+- [ ] **WAL模式**: 启用WAL模式提高并发性能
+- [ ] **索引优化**: 分析查询模式，创建合适的B-tree和FTS5索引
+- [ ] **PRAGMA优化**: 配置cache_size、synchronous、temp_store等
+- [ ] **查询优化**: 避免N+1查询，使用适当的JOIN和LIMIT
 - [ ] **分页优化**: 使用游标分页替代OFFSET
-- [ ] **统计信息**: 定期更新表统计信息 (ANALYZE)
-- [ ] **定期维护**: 清理无用索引，重建碎片化索引
+- [ ] **FTS5搜索**: 使用FTS5替代LIKE进行全文搜索
+- [ ] **定期维护**: 执行VACUUM和PRAGMA optimize
 
 ### 应用层面
 
-- [ ] **连接池**: 合理配置连接池大小和超时
-- [ ] **缓存策略**: 实施多层缓存机制
-- [ ] **查询监控**: 监控慢查询和资源使用
-- [ ] **批量操作**: 使用批量插入/更新减少网络开销
+- [ ] **连接池**: 合理配置SQLite连接池参数
+- [ ] **缓存策略**: 实施多层缓存机制（内存+Redis）
+- [ ] **查询监控**: 监控慢查询和数据库大小
+- [ ] **批量操作**: 使用事务批量处理写操作
 - [ ] **异步处理**: 非关键操作异步化
+- [ ] **读写分离**: 考虑使用只读副本处理查询密集型操作
 
 ### 系统层面
 
-- [ ] **硬件资源**: 充足的内存和快速的存储
-- [ ] **数据库配置**: 优化PostgreSQL配置参数
-- [ ] **网络优化**: 减少网络延迟和带宽使用
-- [ ] **监控告警**: 建立完善的性能监控体系
-- [ ] **容量规划**: 基于增长趋势进行容量规划
+- [ ] **存储优化**: 使用SSD存储提高I/O性能
+- [ ] **内存配置**: 配置充足的系统内存用于文件系统缓存
+- [ ] **并发限制**: 合理控制并发写操作数量
+- [ ] **监控告警**: 建立数据库大小、碎片化等监控
+- [ ] **备份策略**: 建立定期备份和恢复测试流程
+- [ ] **容量规划**: 监控数据库增长趋势并规划扩容
 
-通过系统性的性能优化策略，GeekTools 插件市场能够在高并发场景下保持良好的响应性能和稳定性。
+### SQLite特定优化
+
+- [ ] **文件系统**: 使用支持fallocate的现代文件系统
+- [ ] **内存映射**: 适当配置mmap_size提高大文件访问性能
+- [ ] **预写日志**: 定期检查点WAL文件避免过度增长
+- [ ] **完整性检查**: 定期运行PRAGMA integrity_check
+- [ ] **统计更新**: 定期执行PRAGMA optimize更新查询计划统计
+- [ ] **碎片整理**: 监控碎片化程度，必要时执行VACUUM
+
+通过系统性的SQLite性能优化策略，GeekTools 插件市场能够在高并发场景下保持良好的响应性能和稳定性。SQLite的简单性和可靠性使其成为中小型应用的理想选择。

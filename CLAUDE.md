@@ -5,12 +5,33 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Project Overview
 
 GeekTools Plugin Marketplace is a full-stack web application for managing and distributing plugins. It consists of:
-- **Frontend**: HTML/JS/CSS with Tailwind CSS for the UI
+- **Frontend**: React TypeScript application with Tailwind CSS for the UI
 - **Backend**: Rust-based API server using Axum framework
-- **Database**: PostgreSQL with SQLx migrations
-- **Proxy**: Python-based development proxy server for CORS handling
+- **Database**: SQLite with SQLx migrations
 
 ## Development Commands
+
+### Package Management
+```bash
+# Install all dependencies (frontend and backend)
+pnpm install
+
+# Install dependencies and build backend
+pnpm run install:all
+```
+
+### Development Workflow
+```bash
+# Start all services (React frontend and Rust backend)
+pnpm run dev
+
+# Start individual services
+pnpm run frontend:dev      # Start React development server
+pnpm run backend:dev       # Start Rust backend only
+
+# Build for production
+pnpm run build             # Build both React frontend and backend
+```
 
 ### Backend (Rust)
 ```bash
@@ -44,11 +65,14 @@ sqlx migrate revert
 
 ### Frontend Development
 ```bash
-# Start proxy server (handles CORS and serves static files)
-python3 proxy_server.py
+# Start React development server (with hot reload)
+pnpm run frontend:dev
 
-# Alternative: Simple HTTP server
-python3 -m http.server 8080
+# Build React application for production
+pnpm run frontend:build
+
+# Serve built frontend files
+pnpm run frontend:serve
 ```
 
 ### Docker Deployment
@@ -65,18 +89,39 @@ docker-compose down
 
 ### Database Operations
 ```bash
-# Connect to PostgreSQL
-psql -U postgres
+# Connect to SQLite database
+sqlite3 marketplace.db
 
-# Create database
-CREATE DATABASE marketplace;
+# View tables
+.tables
 
-# Reset database schema
-DROP SCHEMA public CASCADE; 
-CREATE SCHEMA public;
+# View schema
+.schema
+
+# Reset database (delete the file and run migrations)
+rm marketplace.db
+sqlx migrate run
 ```
 
 ## Project Architecture
+
+### Package Structure (pnpm workspace)
+```
+pluginmarket/
+├── pnpm-workspace.yaml          # pnpm workspace configuration
+├── package.json                 # Root package with dev scripts
+├── frontend/                    # React TypeScript frontend
+│   ├── package.json            # Frontend dependencies
+│   ├── src/                    # React source code
+│   ├── public/                 # Public assets
+│   ├── build/                  # Built frontend (generated)
+│   ├── tailwind.config.js      # Tailwind CSS configuration
+│   └── tsconfig.json           # TypeScript configuration
+├── server/                      # Backend package
+│   ├── package.json            # Backend npm scripts
+│   └── src/                    # Rust source code
+└── proxy_server.py             # Legacy development proxy (optional)
+```
 
 ### Backend Structure (`server/src/`)
 - `main.rs` - Application entry point, router setup, CORS configuration
@@ -95,20 +140,33 @@ CREATE SCHEMA public;
 - **Rate Limiting**: Built-in request rate limiting
 - **SMTP Integration**: Email sending via Lettre crate
 
-### Frontend Files
-- `index.html` - Main plugin marketplace interface
-- `admin.html` - Admin management panel
-- `app.js` - Main application logic
-- `admin.js` - Admin panel functionality
-- `config.js` - Frontend configuration
-- `proxy_server.py` - Development proxy for CORS handling
+### Frontend Structure (`frontend/src/`)
+- `App.tsx` - Main React application component with routing
+- `pages/` - React page components (MainPage, AdminPage)
+- `components/` - Reusable React components (Header, PluginGrid, Modals, etc.)
+- `contexts/` - React contexts (AuthContext for authentication state)
+- `services/` - API service layer for backend communication
+- `config/` - TypeScript types and configuration
+- `index.css` - Tailwind CSS with custom styles
+
+### Frontend Dependencies (managed by pnpm)
+- `react` & `react-dom` - React framework
+- `react-router-dom` - Client-side routing
+- `typescript` - TypeScript support
+- `tailwindcss` - Utility-first CSS framework
+- `@fortawesome/fontawesome-free` - Icon library
+- `@tailwindcss/typography` - Typography plugin
+
+### Development Tools
+- `react-scripts` - Create React App build tools
+- `concurrently` - Run multiple npm scripts simultaneously
 
 ## Configuration
 
 ### Environment Variables (`server/.env`)
 ```bash
 # Database
-DATABASE_URL=postgres://username:password@localhost:5432/marketplace
+DATABASE_URL=sqlite://marketplace.db
 DATABASE_MAX_CONNECTIONS=10
 
 # JWT
@@ -171,21 +229,27 @@ Main tables:
 - `ratings` - Plugin ratings and reviews
 - `user_login_activities` - Login tracking for admin
 
+**Note**: The database has been migrated from PostgreSQL to SQLite for easier deployment and reduced complexity.
+
 ## Testing
 
 ### Manual Testing
-Access test pages:
-- Frontend: http://localhost:8080
-- Admin panel: http://localhost:8080/admin.html
-- Health check: http://localhost:3000/api/v1/health
+Access application:
+- Frontend: http://localhost:3001 (React development server)
+- Admin panel: http://localhost:3001/admin
+- Backend API: http://localhost:3000/api/v1/health
 
 ### Development Workflow
-1. Start PostgreSQL database
-2. Set up environment variables in `server/.env`
-3. Run database migrations: `sqlx migrate run`
-4. Start backend: `cargo run` (from server/ directory)
-5. Start proxy: `python3 proxy_server.py` (from project root)
-6. Access frontend at http://localhost:8080
+1. Install dependencies: `pnpm install`
+2. Set up environment variables in `server/.env` (copy from `.env.example`)
+3. Run database migrations: `pnpm run db:migrate`
+4. Start all services: `pnpm run dev` (starts React frontend on port 3001 and Rust backend on port 3000)
+5. Access frontend at http://localhost:3001
+
+### Alternative Development Workflow
+1. Start backend: `pnpm run backend:dev` (runs on port 3000)
+2. Start frontend: `pnpm run frontend:dev` (runs on port 3001)
+3. The React app will make API requests to http://localhost:3000/api/v1
 
 ## Key Dependencies
 
@@ -199,17 +263,25 @@ Access test pages:
 - `serde` - Serialization
 - `validator` - Input validation
 
-### Frontend
-- Tailwind CSS - Utility-first CSS framework
-- Vanilla JavaScript - No additional frameworks
-- Font Awesome - Icon library
+### Frontend (managed by pnpm)
+- `react` & `react-dom` - React framework for UI development
+- `react-router-dom` - Client-side routing for Single Page Application
+- `typescript` - Static typing for better development experience
+- `tailwindcss` - Utility-first CSS framework
+- `@fortawesome/fontawesome-free` - Icon library
+- `@tailwindcss/typography` - Typography plugin for better text styling
+
+### Development Tools
+- `react-scripts` - Create React App toolchain for building and bundling
+- `concurrently` - Run multiple npm scripts simultaneously
+- `pnpm` - Fast, disk space efficient package manager
 
 ## Production Deployment
 
 For production deployment:
 1. Set strong JWT_SECRET in environment
-2. Configure proper database credentials
+2. Ensure SQLite database file has proper permissions and backup
 3. Set up SMTP for email verification
 4. Use reverse proxy (Nginx) for static file serving
 5. Enable HTTPS/SSL certificates
-6. Set up proper backup procedures for database and uploads
+6. Set up proper backup procedures for SQLite database file and uploads

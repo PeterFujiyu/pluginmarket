@@ -59,7 +59,7 @@ pub async fn metrics(
 
     // Calculate this week's new plugins
     let weekly_new = sqlx::query_scalar::<_, i64>(
-        "SELECT COUNT(*) FROM plugins WHERE created_at >= NOW() - INTERVAL '7 days'"
+        "SELECT COUNT(*) FROM plugins WHERE created_at >= datetime('now', '-7 days')"
     )
     .fetch_one(&state.db_pool)
     .await?;
