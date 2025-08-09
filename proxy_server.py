@@ -9,8 +9,9 @@ import urllib.parse
 import json
 import os
 
-PORT = 8080
+PORT = 8088
 BACKEND_URL = os.getenv('BACKEND_URL', 'http://localhost:3000')
+FRONTEND_DIR = 'frontend'
 
 class ProxyHandler(http.server.SimpleHTTPRequestHandler):
     def do_GET(self):
@@ -91,7 +92,17 @@ class ProxyHandler(http.server.SimpleHTTPRequestHandler):
             self.send_error(500, f"Proxy error: {str(e)}")
 
 if __name__ == "__main__":
-    os.chdir(os.path.dirname(os.path.abspath(__file__)))
+    # Change to project root directory
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    os.chdir(script_dir)
+    
+    # Change to frontend directory for serving static files
+    frontend_path = os.path.join(script_dir, FRONTEND_DIR)
+    if os.path.exists(frontend_path):
+        os.chdir(frontend_path)
+        print(f"Serving static files from: {frontend_path}")
+    else:
+        print(f"Warning: Frontend directory '{FRONTEND_DIR}' not found, serving from current directory")
     
     with socketserver.TCPServer(("", PORT), ProxyHandler) as httpd:
         print(f"Serving at http://localhost:{PORT}")

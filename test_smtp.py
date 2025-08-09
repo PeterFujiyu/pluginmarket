@@ -11,11 +11,11 @@ from email.mime.multipart import MIMEMultipart
 
 def test_smtp_connection():
     # 从config.yaml中读取的SMTP配置
-    smtp_host = "smtp.gmail.com"
+    smtp_host = "smtp.qq.com"
     smtp_port = 587
-    username = "peter.fu.369@gmail.com"
-    password = "wkhr eucs gold vyhc"  # 你的App Password
-    from_address = "peter.fu.369@gmail.com"
+    username = "jiyu.fu@qq.com"
+    password = "hwtnihpollwgbhac"  # 你的App Password
+    from_address = "jiyu.fu@qq.com"
     from_name = "GeekTools Plugin Marketplace"
     to_email = "jiyu.fu.369@outlook.com"  # 测试接收邮箱
     

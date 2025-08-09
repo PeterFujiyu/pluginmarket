@@ -1,0 +1,27 @@
+{
+  "name": "geektools-plugin-marketplace",
+  "version": "1.0.0",
+  "description": "GeekTools Plugin Marketplace - Full-stack web application for managing and distributing plugins",
+  "private": true,
+  "workspaces": [
+    "frontend"
+  ],
+  "scripts": {
+    "dev:frontend": "cd frontend && pnpm run dev",
+    "build:frontend": "cd frontend && pnpm run build",
+    "dev:backend": "cd server && cargo run",
+    "build:backend": "cd server && cargo build --release",
+    "dev": "concurrently \"pnpm run dev:backend\" \"pnpm run dev:frontend\"",
+    "proxy": "python3 proxy_server.py",
+    "migrate": "cd server && cargo install sqlx-cli --no-default-features --features postgres && sqlx migrate run"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  },
+  "engines": {
+    "node": ">=16.0.0",
+    "pnpm": ">=8.0.0"
+  },
+  "author": "GeekTools Team",
+  "license": "MIT"
+}

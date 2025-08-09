@@ -5,10 +5,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Project Overview
 
 GeekTools Plugin Marketplace is a full-stack web application for managing and distributing plugins. It consists of:
-- **Frontend**: HTML/JS/CSS with Tailwind CSS for the UI
-- **Backend**: Rust-based API server using Axum framework
+- **Frontend**: HTML/JS/CSS with Tailwind CSS for the UI (located in `./frontend/` directory)
+- **Backend**: Rust-based API server using Axum framework (located in `./server/` directory)  
 - **Database**: PostgreSQL with SQLx migrations
 - **Proxy**: Python-based development proxy server for CORS handling
+- **Package Management**: pnpm for dependency management with workspace support
 
 ## Development Commands
 
@@ -44,11 +45,37 @@ sqlx migrate revert
 
 ### Frontend Development
 ```bash
-# Start proxy server (handles CORS and serves static files)
+# Install all dependencies (from root)
+pnpm install
+
+# Start proxy server (handles CORS and serves static files from ./frontend/)
 python3 proxy_server.py
 
-# Alternative: Simple HTTP server
-python3 -m http.server 8080
+# Alternative: pnpm scripts
+pnpm run dev:frontend  # Start proxy server
+pnpm run proxy         # Start proxy server
+pnpm run dev           # Start both frontend and backend concurrently
+
+# Alternative: Simple HTTP server (from frontend directory)
+cd frontend && python3 -m http.server 8080
+```
+
+### Package Management
+```bash
+# Install all dependencies (root + frontend)
+pnpm install
+
+# Install frontend dependencies only
+cd frontend && pnpm install
+
+# Add dependencies to frontend
+cd frontend && pnpm add <package-name>
+
+# Add dev dependencies to frontend  
+cd frontend && pnpm add -D <package-name>
+
+# Add dependencies to root workspace
+pnpm add <package-name> -w
 ```
 
 ### Docker Deployment
@@ -95,13 +122,19 @@ CREATE SCHEMA public;
 - **Rate Limiting**: Built-in request rate limiting
 - **SMTP Integration**: Email sending via Lettre crate
 
-### Frontend Files
+### Frontend Files (`frontend/`)
 - `index.html` - Main plugin marketplace interface
 - `admin.html` - Admin management panel
 - `app.js` - Main application logic
 - `admin.js` - Admin panel functionality
 - `config.js` - Frontend configuration
-- `proxy_server.py` - Development proxy for CORS handling
+- `proxy-test.html` - Proxy testing page
+- `package.json` - Frontend dependency management
+
+### Development Tools
+- `proxy_server.py` - Development proxy for CORS handling (serves files from `frontend/`)
+- `pnpm-workspace.yaml` - pnpm workspace configuration
+- Root `package.json` - Workspace and build script management
 
 ## Configuration
 
@@ -180,12 +213,18 @@ Access test pages:
 - Health check: http://localhost:3000/api/v1/health
 
 ### Development Workflow
-1. Start PostgreSQL database
-2. Set up environment variables in `server/.env`
-3. Run database migrations: `sqlx migrate run`
-4. Start backend: `cargo run` (from server/ directory)
-5. Start proxy: `python3 proxy_server.py` (from project root)
-6. Access frontend at http://localhost:8080
+1. Install dependencies: `pnpm install` (from project root)
+2. Start PostgreSQL database
+3. Set up environment variables in `server/.env`
+4. Run database migrations: `sqlx migrate run` (from server/ directory)
+5. Start backend: `cargo run` (from server/ directory)
+6. Start proxy: `python3 proxy_server.py` (from project root - serves files from `frontend/`)
+7. Access frontend at http://localhost:8080
+
+### Alternative Quick Start
+1. `pnpm install` - Install all dependencies
+2. Set up database and environment variables
+3. `pnpm run dev` - Start both backend and frontend concurrently
 
 ## Key Dependencies
 
