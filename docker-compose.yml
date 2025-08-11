@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # PostgreSQL Database Service
   postgres:
@@ -110,7 +108,6 @@ services:
   init:
     image: debian:bookworm-slim
     container_name: pluginmarket_init
-    profiles: ["dev", "prod"]
     volumes:
       - ./server/.env:/app/server/.env
       - ./db_password.txt:/run/secrets/db_password
