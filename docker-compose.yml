@@ -1,0 +1,164 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database Service
+  postgres:
+    image: postgres:15-alpine
+    container_name: pluginmarket_postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_DB=marketplace
+      - POSTGRES_USER=appuser
+      - POSTGRES_PASSWORD_FILE=/run/secrets/db_password
+    secrets:
+      - db_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./server/migrations:/docker-entrypoint-initdb.d
+    networks:
+      - app_network
+    # Uncomment the ports below if you need direct database access for debugging
+    # ports:
+    #   - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U appuser -d marketplace -h localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # Rust Backend Service
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        - http_proxy=${http_proxy}
+        - https_proxy=${https_proxy}
+        - no_proxy=${no_proxy}
+        - HTTP_PROXY=${HTTP_PROXY}
+        - HTTPS_PROXY=${HTTPS_PROXY}
+        - NO_PROXY=${NO_PROXY}
+    container_name: pluginmarket_backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      init:
+        condition: service_completed_successfully
+    environment:
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_USER=appuser
+      - DB_NAME=marketplace
+      - SERVER_HOST=0.0.0.0
+      - SERVER_PORT=3000
+      - RUST_LOG=info
+      - RUST_BACKTRACE=1
+    volumes:
+      - app_uploads:/app/uploads
+      - ./server/.env:/app/server/.env
+    networks:
+      - app_network
+    ports:
+      - "3000:3000"
+    command: |
+      sh -c '
+        echo "Waiting for database to be ready..."
+        until pg_isready -h postgres -p 5432 -U appuser -d marketplace; do
+          sleep 2
+        done
+        
+        echo "Running database migrations..."
+        cd server
+        export DATABASE_URL=$$(grep "^DATABASE_URL=" .env | cut -d"=" -f2)
+        sqlx migrate run
+        cd ..
+        
+        echo "Starting application..."
+        exec ./server
+      '
+
+  # Python Proxy Service for Frontend
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.proxy
+    container_name: pluginmarket_frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    environment:
+      - BACKEND_URL=http://backend:3000
+      - FRONTEND_PORT=8080
+    volumes:
+      - ./frontend:/app/frontend:ro
+      - ./proxy_server.py:/app/proxy_server.py:ro
+    networks:
+      - app_network
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    command: ["python3", "/app/proxy_server.py"]
+
+  # 密码生成初始化服务
+  init:
+    image: debian:bookworm-slim
+    container_name: pluginmarket_init
+    profiles: ["dev", "prod"]
+    volumes:
+      - ./server/.env:/app/server/.env
+      - ./db_password.txt:/run/secrets/db_password
+    networks:
+      - app_network
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        apt-get update && apt-get install -y openssl
+        mkdir -p /app/server
+        
+        if [ "$${COMPOSE_PROFILES}" = "dev" ]; then
+          echo "使用开发模式固定密码 devpass"
+          DB_PASSWORD="devpass"
+        else
+          echo "生成生产模式随机密码"
+          DB_PASSWORD=$$(openssl rand -base64 32 | tr -d "\n" | head -c 32)
+        fi
+        
+        echo "$$DB_PASSWORD" > /run/secrets/db_password
+        
+        grep -v "^DB_HOST=\|^DB_PORT=\|^DB_USER=\|^DB_NAME=\|^DB_PASSWORD=\|^DATABASE_URL=" /app/server/.env > /app/server/.env.tmp 2>/dev/null || true
+        echo "DB_HOST=postgres" >> /app/server/.env.tmp
+        echo "DB_PORT=5432" >> /app/server/.env.tmp
+        echo "DB_USER=appuser" >> /app/server/.env.tmp
+        echo "DB_NAME=marketplace" >> /app/server/.env.tmp
+        echo "DB_PASSWORD=$$DB_PASSWORD" >> /app/server/.env.tmp
+        echo "DATABASE_URL=postgres://appuser:$$DB_PASSWORD@postgres:5432/marketplace" >> /app/server/.env.tmp
+        mv /app/server/.env.tmp /app/server/.env
+        
+        echo "数据库配置已写入 server/.env"
+
+# Networks
+networks:
+  app_network:
+    driver: bridge
+    name: pluginmarket_network
+
+# Volumes
+volumes:
+  postgres_data:
+    name: pluginmarket_postgres_data
+    driver: local
+  app_uploads:
+    name: pluginmarket_uploads
+    driver: local
+
+# Secrets
+secrets:
+  db_password:
+    file: ./db_password.txt

@@ -1,0 +1,32 @@
+# Dockerfile for Python proxy server (frontend service)
+FROM debian:bookworm-slim
+
+# Install Python3 and curl
+RUN apt-get update && apt-get install -y \
+    --no-install-recommends \
+    python3 \
+    python3-pip \
+    curl \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create app user
+RUN groupadd -r app && useradd -r -g app app
+
+# Set working directory
+WORKDIR /app
+
+# Copy proxy server script
+COPY proxy_server.py /app/proxy_server.py
+
+# Create frontend directory
+RUN mkdir -p /app/frontend && chown -R app:app /app
+
+# Switch to app user
+USER app
+
+# Expose port 8080
+EXPOSE 8080
+
+# Default command
+CMD ["python3", "/app/proxy_server.py"]
