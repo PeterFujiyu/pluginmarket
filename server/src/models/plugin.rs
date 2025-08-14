@@ -18,6 +18,7 @@ pub struct Plugin {
     #[serde(serialize_with = "serialize_bigdecimal", deserialize_with = "deserialize_bigdecimal")]
     pub rating: BigDecimal,
     pub status: PluginStatus,
+    pub is_active: bool,
     pub min_geektools_version: Option<String>,
     pub homepage_url: Option<String>,
     pub repository_url: Option<String>,

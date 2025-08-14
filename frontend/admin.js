@@ -747,6 +747,16 @@ class AdminPanel {
                 </td>
                 <td class="px-4 py-4">
                     <div class="flex items-center space-x-2">
+                        ${plugin.is_active ? 
+                            `<button onclick="adminPanel.togglePluginStatus('${plugin.id}', '${this.escapeHtml(plugin.name || plugin.id)}', false)" 
+                                     class="px-3 py-1 bg-yellow-500 text-white text-xs rounded hover:bg-yellow-600 transition-colors">
+                                <i class="fas fa-pause mr-1"></i>禁用
+                             </button>` :
+                            `<button onclick="adminPanel.togglePluginStatus('${plugin.id}', '${this.escapeHtml(plugin.name || plugin.id)}', true)" 
+                                     class="px-3 py-1 bg-green-500 text-white text-xs rounded hover:bg-green-600 transition-colors">
+                                <i class="fas fa-play mr-1"></i>启用
+                             </button>`
+                        }
                         <button onclick="adminPanel.deletePlugin('${plugin.id}', '${this.escapeHtml(plugin.name || plugin.id)}')" 
                                 class="px-3 py-1 bg-red-500 text-white text-xs rounded hover:bg-red-600 transition-colors">
                             <i class="fas fa-trash mr-1"></i>删除
@@ -881,6 +891,42 @@ class AdminPanel {
         } catch (error) {
             console.error('Error unbanning user:', error);
             this.showNotification('解封用户失败: ' + error.message, 'error');
+        }
+    }
+
+    async togglePluginStatus(pluginId, pluginName, isActive) {
+        const action = isActive ? "启用" : "禁用";
+        const reason = prompt(`确定要${action}插件 "${pluginName}" 吗？\n\n请输入${action}原因（可选）:`);
+        
+        if (reason === null) {
+            return; // User cancelled
+        }
+
+        try {
+            const response = await fetch(`${this.baseURL}/admin/plugins/toggle-status`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${this.authToken}`,
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    plugin_id: pluginId,
+                    is_active: isActive,
+                    reason: reason.trim() || null
+                })
+            });
+
+            const result = await response.json();
+            
+            if (response.ok && result.success) {
+                this.showNotification(`插件${action}成功`, 'success');
+                this.loadPlugins(); // Refresh the list
+            } else {
+                throw new Error(result.message || `Failed to ${action} plugin`);
+            }
+        } catch (error) {
+            console.error(`Error ${action} plugin:`, error);
+            this.showNotification(`${action}插件失败: ` + error.message, 'error');
         }
     }
 

@@ -10,6 +10,7 @@ use crate::{
         AdminDashboardStats, AdminSqlLog, ExecuteSqlRequest, SqlExecutionResult,
         UpdateUserEmailRequest, UserLoginActivity, UserManagementInfo,
         AdminPaginationQuery, DeletePluginRequest, BanUserRequest, UnbanUserRequest,
+        TogglePluginStatusRequest,
     },
     utils::config::Config,
 };
@@ -625,5 +626,50 @@ impl AdminService {
             .collect();
 
         Ok((plugin_data, total_count))
+    }
+
+    // Toggle plugin active status (disable/enable)
+    pub async fn toggle_plugin_status(
+        &self,
+        admin_user_id: i32,
+        request: TogglePluginStatusRequest,
+        ip_address: Option<IpAddr>,
+    ) -> anyhow::Result<()> {
+        let mut tx = self.db_pool.begin().await?;
+
+        // Update plugin active status
+        let new_status = if request.is_active { "active" } else { "deprecated" };
+        let rows_affected = sqlx::query(
+            "UPDATE plugins SET is_active = $1, status = $2::plugin_status, updated_at = NOW() WHERE id = $3"
+        )
+        .bind(request.is_active)
+        .bind(new_status)
+        .bind(&request.plugin_id)
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+
+        if rows_affected == 0 {
+            return Err(anyhow::anyhow!("Plugin not found"));
+        }
+
+        // Log the status change action
+        let action = if request.is_active { "ENABLE" } else { "DISABLE" };
+        sqlx::query(
+            r#"
+            INSERT INTO admin_sql_logs 
+            (admin_user_id, admin_email, sql_query, execution_time_ms, rows_affected, is_successful, error_message, ip_address)
+            VALUES ($1, (SELECT email FROM users WHERE id = $1), $2, 0, $3, true, NULL, $4)
+            "#,
+        )
+        .bind(admin_user_id)
+        .bind(&format!("{} PLUGIN: {} - REASON: {}", action, request.plugin_id, request.reason.unwrap_or("No reason provided".to_string())))
+        .bind(rows_affected as i32)
+        .bind(ip_address.map(|ip| IpNetwork::from(ip)))
+        .execute(&mut *tx)
+        .await?;
+
+        tx.commit().await?;
+        Ok(())
     }
 }

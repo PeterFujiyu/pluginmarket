@@ -8,7 +8,7 @@ use validator::Validate;
 use crate::{
     handlers::{success_response, success_response_with_message, AppError, Result},
     middleware::auth::get_user_from_token,
-    models::{AdminPaginationQuery, ExecuteSqlRequest, UpdateUserEmailRequest, DeletePluginRequest, BanUserRequest, UnbanUserRequest},
+    models::{AdminPaginationQuery, ExecuteSqlRequest, UpdateUserEmailRequest, DeletePluginRequest, BanUserRequest, UnbanUserRequest, TogglePluginStatusRequest},
     services::AppState,
 };
 
@@ -280,4 +280,30 @@ pub async fn get_plugins_for_management(
     });
 
     Ok(success_response(response))
+}
+
+// Toggle plugin status (disable/enable)
+pub async fn toggle_plugin_status(
+    headers: HeaderMap,
+    State(state): State<AppState>,
+    Json(payload): Json<TogglePluginStatusRequest>,
+) -> Result<Json<serde_json::Value>> {
+    let (admin_id, _admin_email) = require_admin(&headers, &state).await?;
+
+    payload.validate()?;
+
+    let ip_address = get_client_ip(&headers);
+
+    let action = if payload.is_active { "启用" } else { "禁用" };
+    
+    state
+        .admin_service
+        .toggle_plugin_status(admin_id, payload, ip_address)
+        .await
+        .map_err(|e| AppError::Internal(format!("Failed to toggle plugin status: {}", e)))?;
+
+    Ok(success_response_with_message(
+        serde_json::json!({}),
+        &format!("插件{}成功", action),
+    ))
 }

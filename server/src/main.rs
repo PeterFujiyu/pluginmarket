@@ -141,6 +141,7 @@ fn create_app(state: AppState) -> Router {
         .route("/admin/users/unban", post(admin::unban_user))
         .route("/admin/plugins", get(admin::get_plugins_for_management))
         .route("/admin/plugins/delete", post(admin::delete_plugin))
+        .route("/admin/plugins/toggle-status", post(admin::toggle_plugin_status))
         .route("/admin/sql/execute", post(admin::execute_sql))
         .route("/admin/login-activities", get(admin::get_user_login_activities))
         .route("/admin/recent-logins", get(admin::get_recent_logins))

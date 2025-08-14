@@ -146,3 +146,24 @@ pub struct UnbanUserRequest {
     pub user_id: i32,
     pub reason: Option<String>,
 }
+
+#[derive(Debug, Serialize, Deserialize, Validate)]
+pub struct TogglePluginStatusRequest {
+    pub plugin_id: String,
+    pub is_active: bool,
+    pub reason: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, FromRow)]
+pub struct PluginManagementInfo {
+    pub id: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub author: String,
+    pub current_version: String,
+    pub downloads: i32,
+    pub status: String,
+    pub is_active: bool,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
