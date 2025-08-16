@@ -49,11 +49,17 @@ class PluginMarketplace {
                 userRole.classList.add('hidden');
                 adminPanelLink.classList.add('hidden');
             }
+            
+            // 加载用户头像
+            this.loadUserAvatar();
         } else {
             loggedOut.classList.remove('hidden');
             loggedIn.classList.add('hidden');
             userRole.classList.add('hidden');
             adminPanelLink.classList.add('hidden');
+            
+            // 清除头像显示
+            this.clearUserAvatar();
         }
     }
 
@@ -199,6 +205,50 @@ class PluginMarketplace {
         localStorage.removeItem('current_user');
         this.updateAuthUI();
         this.showSuccess('已退出登录');
+    }
+
+    async loadUserAvatar() {
+        if (!this.authToken) return;
+        
+        try {
+            const response = await fetch(`${this.baseURL}/user/avatar`, {
+                headers: {
+                    'Authorization': `Bearer ${this.authToken}`
+                }
+            });
+            
+            if (response.ok) {
+                const data = await response.json();
+                if (data.success && data.avatar_url) {
+                    this.updateUserAvatarDisplay(data.avatar_url);
+                }
+            }
+        } catch (error) {
+            console.log('加载头像失败:', error);
+            // 不显示错误，因为用户可能没有头像
+        }
+    }
+
+    updateUserAvatarDisplay(avatarUrl) {
+        const userAvatarImg = document.getElementById('userAvatarImg');
+        const userAvatarIcon = document.getElementById('userAvatarIcon');
+        
+        if (userAvatarImg && userAvatarIcon) {
+            userAvatarImg.src = avatarUrl;
+            userAvatarImg.classList.remove('hidden');
+            userAvatarIcon.classList.add('hidden');
+        }
+    }
+
+    clearUserAvatar() {
+        const userAvatarImg = document.getElementById('userAvatarImg');
+        const userAvatarIcon = document.getElementById('userAvatarIcon');
+        
+        if (userAvatarImg && userAvatarIcon) {
+            userAvatarImg.classList.add('hidden');
+            userAvatarIcon.classList.remove('hidden');
+            userAvatarImg.src = '';
+        }
     }
 
     bindEvents() {
@@ -1231,5 +1281,5 @@ class PluginMarketplace {
 
 // Initialize the marketplace when DOM is loaded
 document.addEventListener('DOMContentLoaded', () => {
-    window.marketplace = new PluginMarketplace();
+    window.pluginMarketplace = new PluginMarketplace();
 });

@@ -3,6 +3,7 @@ pub mod plugins;
 pub mod search;
 pub mod health;
 pub mod admin;
+pub mod avatar;
 
 use axum::{
     http::StatusCode,

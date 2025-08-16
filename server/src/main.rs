@@ -25,7 +25,7 @@ use tower_http::{
 use tracing::info;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
-use handlers::{auth, plugins, search, health, admin};
+use handlers::{auth, plugins, search, health, admin, avatar};
 use services::AppState;
 use utils::config::Config;
 
@@ -78,6 +78,11 @@ async fn main() -> anyhow::Result<()> {
 
     // Run migrations
     sqlx::migrate!("./migrations").run(&pool).await?;
+
+    // Ensure upload directories exist
+    tokio::fs::create_dir_all("uploads/plugins").await?;
+    tokio::fs::create_dir_all("uploads/avatars").await?;
+    tokio::fs::create_dir_all("uploads/temp").await?;
 
     // Create application state
     let state = AppState::new(pool, config).await?;
@@ -145,6 +150,12 @@ fn create_app(state: AppState) -> Router {
         .route("/admin/sql/execute", post(admin::execute_sql))
         .route("/admin/login-activities", get(admin::get_user_login_activities))
         .route("/admin/recent-logins", get(admin::get_recent_logins))
+        
+        // Avatar routes
+        .route("/user/avatar", post(avatar::upload_avatar))
+        .route("/user/avatar", get(avatar::get_user_avatar_info))
+        .route("/user/avatar", axum::routing::delete(avatar::delete_avatar))
+        .route("/avatars/:filename", get(avatar::get_avatar))
         
         .with_state(state);
 

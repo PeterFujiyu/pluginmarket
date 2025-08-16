@@ -23,6 +23,7 @@
         }
     </script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.1/cropper.min.css">
     <style>
         /* 全局玻璃态背景 */
         body {
@@ -266,6 +267,33 @@
                 0 4px 12px rgba(255, 140, 71, 0.4),
                 inset 0 1px 0 rgba(255, 255, 255, 0.5);
         }
+        
+        /* 头像上传相关样式 */
+        .avatar-upload-container {
+            position: relative;
+            display: inline-block;
+        }
+        
+        .avatar-upload-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.6);
+            backdrop-filter: blur(5px);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+            cursor: pointer;
+        }
+        
+        .user-avatar:hover .avatar-upload-overlay {
+            opacity: 1;
+        }
     </style>
 </head>
 <body class="font-claude text-claude-text min-h-screen">
@@ -290,8 +318,14 @@
                         <i class="fas fa-home mr-2"></i>返回市场
                     </a>
                     <div class="flex items-center space-x-2">
-                        <div class="user-avatar w-8 h-8 rounded-full flex items-center justify-center">
-                            <i class="fas fa-user text-white text-sm"></i>
+                        <div class="avatar-upload-container">
+                            <div class="user-avatar w-8 h-8 rounded-full flex items-center justify-center" id="adminAvatarPreview">
+                                <img id="adminAvatarImg" class="hidden w-full h-full object-cover rounded-full" alt="管理员头像">
+                                <i id="adminAvatarIcon" class="fas fa-user text-white text-sm"></i>
+                                <div class="avatar-upload-overlay">
+                                    <i class="fas fa-camera text-white text-xs"></i>
+                                </div>
+                            </div>
                         </div>
                         <span id="adminEmail" class="text-gray-700 text-sm">管理员</span>
                     </div>
@@ -629,6 +663,55 @@ UPDATE users SET display_name = '新名称' WHERE id = 123;"></textarea>
         </div>
     </div>
 
+    <!-- Cropper.js Library -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.1/cropper.min.js"></script>
+    
     <script src="admin.js"></script>
+    
+    <!-- 简化的头像上传功能 -->
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const adminAvatarPreview = document.getElementById('adminAvatarPreview');
+            const adminAvatarImg = document.getElementById('adminAvatarImg');
+            const adminAvatarIcon = document.getElementById('adminAvatarIcon');
+            
+            // 简单的头像上传功能（点击跳转到用户页面）
+            if (adminAvatarPreview) {
+                adminAvatarPreview.addEventListener('click', function() {
+                    // 可以添加模态框或跳转到个人设置页面
+                    showNotification('请到用户页面设置头像', 'info');
+                });
+            }
+            
+            // 简单通知功能
+            function showNotification(message, type = 'info') {
+                const notification = document.createElement('div');
+                notification.className = `fixed top-4 right-4 px-6 py-3 rounded-lg text-white z-50 transition-all duration-300 ${
+                    type === 'success' ? 'bg-green-500' : 
+                    type === 'error' ? 'bg-red-500' : 'bg-blue-500'
+                }`;
+                notification.textContent = message;
+                
+                document.body.appendChild(notification);
+                
+                setTimeout(() => {
+                    notification.classList.add('opacity-0', 'translate-x-full');
+                    setTimeout(() => {
+                        if (document.body.contains(notification)) {
+                            document.body.removeChild(notification);
+                        }
+                    }, 300);
+                }, 3000);
+            }
+            
+            // 如果有保存的头像，显示它
+            const savedAvatar = localStorage.getItem('userAvatar');
+            if (savedAvatar && adminAvatarImg && adminAvatarIcon) {
+                adminAvatarImg.src = savedAvatar;
+                adminAvatarImg.classList.remove('hidden');
+                adminAvatarIcon.classList.add('hidden');
+            }
+        });
+    </script>
 </body>
 </html>

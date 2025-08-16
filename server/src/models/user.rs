@@ -11,6 +11,7 @@ pub struct User {
     pub password_hash: String,
     pub display_name: Option<String>,
     pub role: Option<String>,
+    pub avatar_url: Option<String>,
     pub is_active: bool,
     pub is_verified: bool,
     pub created_at: DateTime<Utc>,
@@ -43,6 +44,7 @@ pub struct UserResponse {
     pub username: String,
     pub email: String,
     pub display_name: Option<String>,
+    pub avatar_url: Option<String>,
     pub is_active: bool,
     pub is_verified: bool,
     pub created_at: DateTime<Utc>,
@@ -64,6 +66,25 @@ pub struct TokenClaims {
     pub iat: usize,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct UserAvatar {
+    pub id: i32,
+    pub user_id: i32,
+    pub file_name: String,
+    pub file_path: String,
+    pub file_size: i32,
+    pub mime_type: String,
+    pub upload_time: DateTime<Utc>,
+    pub is_active: Option<bool>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AvatarUploadResponse {
+    pub success: bool,
+    pub message: String,
+    pub avatar_url: Option<String>,
+}
+
 impl From<User> for UserResponse {
     fn from(user: User) -> Self {
         Self {
@@ -71,6 +92,7 @@ impl From<User> for UserResponse {
             username: user.username,
             email: user.email,
             display_name: user.display_name,
+            avatar_url: user.avatar_url,
             is_active: user.is_active,
             is_verified: user.is_verified,
             created_at: user.created_at,

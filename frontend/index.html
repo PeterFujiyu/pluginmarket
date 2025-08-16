@@ -23,6 +23,7 @@
         }
     </script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.1/cropper.min.css">
     <style>
         /* 全局玻璃态背景 */
         body {
@@ -403,6 +404,123 @@
             opacity: 1;
         }
         
+        /* 头像上传相关样式 */
+        .avatar-upload-container {
+            position: relative;
+            display: inline-block;
+        }
+        
+        .avatar-preview {
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, 
+                rgba(255, 140, 71, 0.9) 0%, 
+                rgba(255, 122, 53, 0.9) 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 
+                0 4px 16px rgba(255, 140, 71, 0.3),
+                inset 0 1px 0 rgba(255, 255, 255, 0.4);
+        }
+        
+        .avatar-preview:hover {
+            transform: scale(1.05);
+            box-shadow: 
+                0 6px 20px rgba(255, 140, 71, 0.4),
+                inset 0 1px 0 rgba(255, 255, 255, 0.5);
+        }
+        
+        .avatar-preview img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            border-radius: 50%;
+        }
+        
+        .avatar-upload-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.6);
+            backdrop-filter: blur(5px);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+            cursor: pointer;
+        }
+        
+        .avatar-preview:hover .avatar-upload-overlay {
+            opacity: 1;
+        }
+        
+        .avatar-crop-container {
+            max-width: 400px;
+            max-height: 400px;
+            margin: 0 auto;
+            position: relative;
+            overflow: hidden;
+            border-radius: 12px;
+            background: rgba(0, 0, 0, 0.1);
+        }
+        
+        .crop-preview {
+            width: 120px;
+            height: 120px;
+            border-radius: 50%;
+            overflow: hidden;
+            border: 3px solid rgba(255, 140, 71, 0.3);
+            margin: 0 auto;
+            background: rgba(255, 255, 255, 0.1);
+        }
+        
+        .avatar-upload-zone {
+            border: 2px dashed rgba(255, 140, 71, 0.3);
+            border-radius: 12px;
+            padding: 40px;
+            text-align: center;
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(5px);
+            transition: all 0.3s ease;
+            cursor: pointer;
+        }
+        
+        .avatar-upload-zone:hover {
+            border-color: rgba(255, 140, 71, 0.6);
+            background: rgba(255, 140, 71, 0.05);
+            transform: translateY(-2px);
+        }
+        
+        .avatar-upload-zone.dragover {
+            border-color: #FF8C47;
+            background: rgba(255, 140, 71, 0.1);
+            transform: scale(1.02);
+        }
+        
+        .avatar-upload-icon {
+            width: 64px;
+            height: 64px;
+            margin: 0 auto 16px;
+            background: linear-gradient(135deg, 
+                rgba(255, 140, 71, 0.2) 0%, 
+                rgba(255, 122, 53, 0.2) 100%);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #FF8C47;
+            font-size: 24px;
+        }
+        
         .spinner {
             border: 2px solid rgba(255, 255, 255, 0.3);
             border-top: 2px solid #FF8C47;
@@ -464,8 +582,14 @@
                         <!-- Logged in state -->
                         <div id="loggedIn" class="hidden flex items-center space-x-4">
                             <div class="flex items-center space-x-2">
-                                <div class="user-avatar w-8 h-8 rounded-full flex items-center justify-center">
-                                    <i class="fas fa-user text-white text-sm"></i>
+                                <div class="avatar-upload-container">
+                                    <div class="avatar-preview w-8 h-8" id="userAvatarPreview">
+                                        <img id="userAvatarImg" class="hidden" alt="用户头像">
+                                        <i id="userAvatarIcon" class="fas fa-user text-white text-sm"></i>
+                                        <div class="avatar-upload-overlay">
+                                            <i class="fas fa-camera text-white text-xs"></i>
+                                        </div>
+                                    </div>
                                 </div>
                                 <span id="userEmail" class="text-gray-700 text-sm"></span>
                                 <span id="userRole" class="hidden px-2 py-1 bg-red-100 text-red-700 text-xs rounded-full">管理员</span>
@@ -727,6 +851,91 @@
         </div>
     </div>
 
+    <!-- Avatar Upload Modal -->
+    <div id="avatarUploadModal" class="fixed inset-0 glass-backdrop hidden z-50">
+        <div class="flex items-center justify-center min-h-screen p-4">
+            <div class="glass-modal rounded-2xl max-w-lg w-full">
+                <div class="p-6">
+                    <!-- Header -->
+                    <div class="flex items-center justify-between mb-6">
+                        <h2 class="text-2xl font-bold text-claude-text">上传头像</h2>
+                        <button id="closeAvatarModal" class="text-gray-500 hover:text-gray-700">
+                            <i class="fas fa-times text-xl"></i>
+                        </button>
+                    </div>
+                    
+                    <!-- Upload Steps -->
+                    <div class="space-y-6">
+                        <!-- Step 1: Upload -->
+                        <div id="avatarUploadStep" class="space-y-4">
+                            <div class="avatar-upload-zone" id="avatarDropZone">
+                                <input type="file" id="avatarFileInput" accept="image/*" class="hidden">
+                                <div class="avatar-upload-icon">
+                                    <i class="fas fa-user-plus"></i>
+                                </div>
+                                <h3 class="text-lg font-semibold text-gray-700 mb-2">选择头像图片</h3>
+                                <p class="text-gray-500 text-sm mb-4">支持 JPG、PNG、GIF 格式，最大 5MB</p>
+                                <button type="button" class="glass-button px-6 py-2 text-white rounded-lg">
+                                    <i class="fas fa-upload mr-2"></i>选择文件
+                                </button>
+                                <p class="text-xs text-gray-400 mt-2">或拖拽图片到此区域</p>
+                            </div>
+                        </div>
+                        
+                        <!-- Step 2: Crop -->
+                        <div id="avatarCropStep" class="hidden space-y-4">
+                            <div class="text-center mb-4">
+                                <h3 class="text-lg font-semibold text-gray-700 mb-2">调整头像</h3>
+                                <p class="text-gray-500 text-sm">拖动调整头像位置和大小</p>
+                            </div>
+                            
+                            <!-- Crop Container -->
+                            <div class="avatar-crop-container" id="avatarCropContainer">
+                                <img id="avatarCropImage" class="max-w-full h-auto">
+                            </div>
+                            
+                            <!-- Preview -->
+                            <div class="text-center">
+                                <p class="text-sm text-gray-600 mb-2">预览</p>
+                                <div class="crop-preview" id="avatarCropPreview"></div>
+                            </div>
+                            
+                            <!-- Controls -->
+                            <div class="flex justify-center space-x-4">
+                                <button type="button" id="avatarZoomOut" class="glass-button-secondary px-3 py-2 rounded-lg">
+                                    <i class="fas fa-search-minus"></i>
+                                </button>
+                                <button type="button" id="avatarZoomIn" class="glass-button-secondary px-3 py-2 rounded-lg">
+                                    <i class="fas fa-search-plus"></i>
+                                </button>
+                                <button type="button" id="avatarRotateLeft" class="glass-button-secondary px-3 py-2 rounded-lg">
+                                    <i class="fas fa-undo"></i>
+                                </button>
+                                <button type="button" id="avatarRotateRight" class="glass-button-secondary px-3 py-2 rounded-lg">
+                                    <i class="fas fa-redo"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Actions -->
+                    <div class="flex justify-end space-x-3 mt-6 pt-6 border-t border-gray-200">
+                        <button type="button" id="cancelAvatarUpload" class="glass-button-secondary px-4 py-2 text-gray-700 rounded-lg transition-colors">
+                            取消
+                        </button>
+                        <button type="button" id="backToCrop" class="hidden glass-button-secondary px-4 py-2 text-gray-700 rounded-lg transition-colors">
+                            <i class="fas fa-arrow-left mr-2"></i>重新选择
+                        </button>
+                        <button type="button" id="saveAvatarBtn" class="hidden glass-button px-4 py-2 text-white rounded-lg transition-colors">
+                            <span id="saveAvatarText">保存头像</span>
+                            <div id="saveAvatarSpinner" class="hidden spinner inline-block ml-2"></div>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Rating Modal -->
     <div id="ratingModal" class="fixed inset-0 glass-backdrop hidden z-50">
         <div class="flex items-center justify-center min-h-screen p-4">
@@ -788,8 +997,11 @@
         </div>
     </div>
 
+    <!-- 底部间距 -->
+    <div class="h-96"></div>
+    
     <!-- Footer -->
-    <footer class="glass-footer mt-16">
+    <footer class="glass-footer mt-16 mb-8">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
             <div class="text-center text-sm text-gray-600">
                 Copyright © 2025 <a href="https://github.com/PeterFujiyu" class="text-claude-orange hover:text-claude-orange-dark transition-colors">Github@PeterFujiyu</a>, 
@@ -798,9 +1010,346 @@
         </div>
     </footer>
 
+    <!-- Cropper.js Library -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.1/cropper.min.js"></script>
+    
     <!-- 配置文件 -->
     <script src="config.js"></script>
     <!-- 主应用 -->
     <script src="app.js"></script>
+    
+    <!-- 头像上传功能 -->
+    <script>
+        // 头像上传相关变量
+        let avatarCropper = null;
+        let currentAvatarFile = null;
+        
+        // DOM 元素
+        const avatarUploadModal = document.getElementById('avatarUploadModal');
+        const avatarUploadStep = document.getElementById('avatarUploadStep');
+        const avatarCropStep = document.getElementById('avatarCropStep');
+        const avatarFileInput = document.getElementById('avatarFileInput');
+        const avatarDropZone = document.getElementById('avatarDropZone');
+        const avatarCropImage = document.getElementById('avatarCropImage');
+        const avatarCropPreview = document.getElementById('avatarCropPreview');
+        const userAvatarPreview = document.getElementById('userAvatarPreview');
+        const userAvatarImg = document.getElementById('userAvatarImg');
+        const userAvatarIcon = document.getElementById('userAvatarIcon');
+        
+        // 按钮元素
+        const closeAvatarModal = document.getElementById('closeAvatarModal');
+        const cancelAvatarUpload = document.getElementById('cancelAvatarUpload');
+        const backToCrop = document.getElementById('backToCrop');
+        const saveAvatarBtn = document.getElementById('saveAvatarBtn');
+        const saveAvatarText = document.getElementById('saveAvatarText');
+        const saveAvatarSpinner = document.getElementById('saveAvatarSpinner');
+        
+        // 裁剪控制按钮
+        const avatarZoomIn = document.getElementById('avatarZoomIn');
+        const avatarZoomOut = document.getElementById('avatarZoomOut');
+        const avatarRotateLeft = document.getElementById('avatarRotateLeft');
+        const avatarRotateRight = document.getElementById('avatarRotateRight');
+        
+        // 打开头像上传模态框
+        function openAvatarUploadModal() {
+            avatarUploadModal.classList.remove('hidden');
+            resetAvatarUpload();
+        }
+        
+        // 关闭头像上传模态框
+        function closeAvatarUploadModal() {
+            avatarUploadModal.classList.add('hidden');
+            resetAvatarUpload();
+        }
+        
+        // 重置头像上传状态
+        function resetAvatarUpload() {
+            // 重置步骤
+            avatarUploadStep.classList.remove('hidden');
+            avatarCropStep.classList.add('hidden');
+            
+            // 重置按钮
+            backToCrop.classList.add('hidden');
+            saveAvatarBtn.classList.add('hidden');
+            
+            // 销毁裁剪器
+            if (avatarCropper) {
+                avatarCropper.destroy();
+                avatarCropper = null;
+            }
+            
+            // 清理文件
+            currentAvatarFile = null;
+            avatarFileInput.value = '';
+        }
+        
+        // 文件选择处理
+        function handleAvatarFileSelect(file) {
+            if (!file) return;
+            
+            // 验证文件类型
+            if (!file.type.match(/^image\/(jpeg|jpg|png|gif)$/)) {
+                alert('请选择有效的图片文件 (JPG, PNG, GIF)');
+                return;
+            }
+            
+            // 验证文件大小 (5MB)
+            if (file.size > 5 * 1024 * 1024) {
+                alert('图片文件不能超过 5MB');
+                return;
+            }
+            
+            currentAvatarFile = file;
+            
+            // 读取文件并显示裁剪界面
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                avatarCropImage.src = e.target.result;
+                showCropStep();
+            };
+            reader.readAsDataURL(file);
+        }
+        
+        // 显示裁剪步骤
+        function showCropStep() {
+            avatarUploadStep.classList.add('hidden');
+            avatarCropStep.classList.remove('hidden');
+            backToCrop.classList.remove('hidden');
+            saveAvatarBtn.classList.remove('hidden');
+            
+            // 初始化裁剪器
+            initCropper();
+        }
+        
+        // 初始化图片裁剪器
+        function initCropper() {
+            if (avatarCropper) {
+                avatarCropper.destroy();
+            }
+            
+            avatarCropper = new Cropper(avatarCropImage, {
+                aspectRatio: 1,
+                viewMode: 2,
+                dragMode: 'move',
+                autoCropArea: 0.8,
+                restore: false,
+                guides: false,
+                center: false,
+                highlight: false,
+                cropBoxMovable: false,
+                cropBoxResizable: false,
+                toggleDragModeOnDblclick: false,
+                crop: function(event) {
+                    updateCropPreview();
+                }
+            });
+        }
+        
+        // 更新裁剪预览
+        function updateCropPreview() {
+            if (!avatarCropper) return;
+            
+            const canvas = avatarCropper.getCroppedCanvas({
+                width: 120,
+                height: 120,
+                imageSmoothingEnabled: true,
+                imageSmoothingQuality: 'high'
+            });
+            
+            avatarCropPreview.innerHTML = '';
+            avatarCropPreview.appendChild(canvas);
+        }
+        
+        // 保存头像
+        async function saveAvatar() {
+            if (!avatarCropper) return;
+            
+            try {
+                saveAvatarText.textContent = '保存中...';
+                saveAvatarSpinner.classList.remove('hidden');
+                saveAvatarBtn.disabled = true;
+                
+                // 获取裁剪后的图片
+                const canvas = avatarCropper.getCroppedCanvas({
+                    width: 200,
+                    height: 200,
+                    imageSmoothingEnabled: true,
+                    imageSmoothingQuality: 'high'
+                });
+                
+                // 转换为 Blob
+                const blob = await new Promise(resolve => {
+                    canvas.toBlob(resolve, 'image/jpeg', 0.9);
+                });
+                
+                // 创建 FormData
+                const formData = new FormData();
+                formData.append('avatar', blob, 'avatar.jpg');
+                
+                // 发送到服务器
+                const response = await fetch('/api/v1/user/avatar', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${getAuthToken()}`
+                    },
+                    body: formData
+                });
+                
+                if (!response.ok) {
+                    throw new Error('上传失败');
+                }
+                
+                const result = await response.json();
+                
+                // 更新头像显示 - 使用服务器返回的URL
+                if (result.avatar_url) {
+                    updateUserAvatar(result.avatar_url);
+                    
+                    // 同时通知主应用更新头像显示
+                    if (window.pluginMarketplace && window.pluginMarketplace.updateUserAvatarDisplay) {
+                        window.pluginMarketplace.updateUserAvatarDisplay(result.avatar_url);
+                    }
+                }
+                
+                // 关闭模态框
+                closeAvatarUploadModal();
+                
+                // 显示成功消息
+                showNotification('头像上传成功！', 'success');
+                
+            } catch (error) {
+                console.error('头像上传失败:', error);
+                showNotification('头像上传失败，请重试', 'error');
+            } finally {
+                saveAvatarText.textContent = '保存头像';
+                saveAvatarSpinner.classList.add('hidden');
+                saveAvatarBtn.disabled = false;
+            }
+        }
+        
+        // 更新用户头像显示
+        function updateUserAvatar(src) {
+            userAvatarImg.src = src;
+            userAvatarImg.classList.remove('hidden');
+            userAvatarIcon.classList.add('hidden');
+        }
+        
+        // 获取认证Token (需要根据实际实现调整)
+        function getAuthToken() {
+            return localStorage.getItem('auth_token') || '';
+        }
+        
+        // 显示通知 (简单实现)
+        function showNotification(message, type = 'info') {
+            const notification = document.createElement('div');
+            notification.className = `fixed top-4 right-4 px-6 py-3 rounded-lg text-white z-50 transition-all duration-300 ${
+                type === 'success' ? 'bg-green-500' : 
+                type === 'error' ? 'bg-red-500' : 'bg-blue-500'
+            }`;
+            notification.textContent = message;
+            
+            document.body.appendChild(notification);
+            
+            setTimeout(() => {
+                notification.classList.add('opacity-0', 'translate-x-full');
+                setTimeout(() => {
+                    document.body.removeChild(notification);
+                }, 300);
+            }, 3000);
+        }
+        
+        // 事件监听器
+        document.addEventListener('DOMContentLoaded', function() {
+            // 头像将由主应用的loadUserAvatar()方法从服务器加载
+            
+            // 头像点击事件
+            userAvatarPreview.addEventListener('click', openAvatarUploadModal);
+            
+            // 模态框关闭事件
+            closeAvatarModal.addEventListener('click', closeAvatarUploadModal);
+            cancelAvatarUpload.addEventListener('click', closeAvatarUploadModal);
+            
+            // 返回选择文件
+            backToCrop.addEventListener('click', function() {
+                avatarCropStep.classList.add('hidden');
+                avatarUploadStep.classList.remove('hidden');
+                backToCrop.classList.add('hidden');
+                saveAvatarBtn.classList.add('hidden');
+                
+                if (avatarCropper) {
+                    avatarCropper.destroy();
+                    avatarCropper = null;
+                }
+            });
+            
+            // 保存头像
+            saveAvatarBtn.addEventListener('click', saveAvatar);
+            
+            // 文件选择
+            avatarFileInput.addEventListener('change', function(e) {
+                const file = e.target.files[0];
+                if (file) {
+                    handleAvatarFileSelect(file);
+                }
+            });
+            
+            // 拖放区域事件
+            avatarDropZone.addEventListener('click', function() {
+                avatarFileInput.click();
+            });
+            
+            avatarDropZone.addEventListener('dragover', function(e) {
+                e.preventDefault();
+                avatarDropZone.classList.add('dragover');
+            });
+            
+            avatarDropZone.addEventListener('dragleave', function(e) {
+                e.preventDefault();
+                avatarDropZone.classList.remove('dragover');
+            });
+            
+            avatarDropZone.addEventListener('drop', function(e) {
+                e.preventDefault();
+                avatarDropZone.classList.remove('dragover');
+                
+                const files = e.dataTransfer.files;
+                if (files.length > 0) {
+                    handleAvatarFileSelect(files[0]);
+                }
+            });
+            
+            // 裁剪控制
+            avatarZoomIn.addEventListener('click', function() {
+                if (avatarCropper) {
+                    avatarCropper.zoom(0.1);
+                }
+            });
+            
+            avatarZoomOut.addEventListener('click', function() {
+                if (avatarCropper) {
+                    avatarCropper.zoom(-0.1);
+                }
+            });
+            
+            avatarRotateLeft.addEventListener('click', function() {
+                if (avatarCropper) {
+                    avatarCropper.rotate(-90);
+                }
+            });
+            
+            avatarRotateRight.addEventListener('click', function() {
+                if (avatarCropper) {
+                    avatarCropper.rotate(90);
+                }
+            });
+            
+            // 点击模态框外部关闭
+            avatarUploadModal.addEventListener('click', function(e) {
+                if (e.target === avatarUploadModal) {
+                    closeAvatarUploadModal();
+                }
+            });
+        });
+    </script>
 </body>
 </html>
