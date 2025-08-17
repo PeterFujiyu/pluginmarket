@@ -20,9 +20,287 @@ class PluginMarketplace {
     init() {
         this.bindEvents();
         this.initAuth();
+        this.initAnimations();
+        this.initDarkMode();
         this.loadStats();
         this.loadPlugins();
         this.setupFileUpload();
+    }
+
+    initAnimations() {
+        // 初始化动画效果
+        this.setupRippleEffects();
+        this.setupSearchAnimations();
+        this.setupNumberAnimations();
+        this.setupModalAnimations();
+    }
+
+    setupRippleEffects() {
+        // 为所有带有ripple-effect类的元素添加波浪点击效果
+        document.addEventListener('click', (e) => {
+            const rippleElement = e.target.closest('.ripple-effect');
+            if (rippleElement && !rippleElement.disabled) {
+                this.createRippleEffect(rippleElement, e);
+            }
+        });
+    }
+
+    createRippleEffect(element, event) {
+        const rect = element.getBoundingClientRect();
+        const size = Math.max(rect.width, rect.height);
+        const x = event.clientX - rect.left - size / 2;
+        const y = event.clientY - rect.top - size / 2;
+
+        const ripple = element.querySelector('::before') || document.createElement('div');
+        
+        // 移除之前的动画类
+        element.classList.remove('animate');
+        
+        // 设置波浪位置
+        element.style.setProperty('--ripple-x', `${x}px`);
+        element.style.setProperty('--ripple-y', `${y}px`);
+        element.style.setProperty('--ripple-size', `${size}px`);
+        
+        // 触发动画
+        requestAnimationFrame(() => {
+            element.classList.add('animate');
+        });
+        
+        // 动画结束后清理
+        setTimeout(() => {
+            element.classList.remove('animate');
+        }, 600);
+    }
+
+    setupSearchAnimations() {
+        const searchInput = document.getElementById('searchInput');
+        
+        searchInput.addEventListener('focus', () => {
+            searchInput.classList.add('search-focus-animation');
+        });
+        
+        searchInput.addEventListener('animationend', () => {
+            searchInput.classList.remove('search-focus-animation');
+        });
+        
+        // 搜索输入动画
+        searchInput.addEventListener('input', () => {
+            if (searchInput.value.length > 0) {
+                searchInput.style.transform = 'scale(1.01)';
+            } else {
+                searchInput.style.transform = 'scale(1)';
+            }
+        });
+    }
+
+    setupNumberAnimations() {
+        // 统计数字滚动动画
+        this.animateNumbers = (element, start, end, duration = 1500) => {
+            const startTime = performance.now();
+            const range = end - start;
+            
+            const animate = (currentTime) => {
+                const elapsed = currentTime - startTime;
+                const progress = Math.min(elapsed / duration, 1);
+                
+                // 使用缓动函数
+                const easeOut = 1 - Math.pow(1 - progress, 3);
+                const currentValue = Math.floor(start + range * easeOut);
+                
+                element.textContent = this.formatNumber(currentValue);
+                element.classList.add('number-roll');
+                
+                if (progress < 1) {
+                    requestAnimationFrame(animate);
+                } else {
+                    element.classList.remove('number-roll');
+                }
+            };
+            
+            requestAnimationFrame(animate);
+        };
+    }
+
+    formatNumber(num) {
+        if (num >= 1000000) {
+            return (num / 1000000).toFixed(1) + 'M';
+        } else if (num >= 1000) {
+            return (num / 1000).toFixed(1) + 'K';
+        }
+        return num.toString();
+    }
+
+    setupModalAnimations() {
+        // 模态框动画设置
+        const modals = ['pluginModal', 'uploadModal', 'loginModal', 'ratingModal'];
+        
+        modals.forEach(modalId => {
+            const modal = document.getElementById(modalId);
+            const backdrop = modal;
+            const content = modal.querySelector('.glass-modal');
+            
+            // 显示模态框时的动画
+            const originalShow = this[`show${modalId.replace('Modal', '').replace(/^./, str => str.toUpperCase())}Modal`];
+            if (originalShow) {
+                this[`show${modalId.replace('Modal', '').replace(/^./, str => str.toUpperCase())}Modal`] = (...args) => {
+                    originalShow.apply(this, args);
+                    backdrop.classList.add('modal-backdrop-fade-in');
+                    content.classList.add('modal-slide-in');
+                    
+                    // 清理动画类
+                    setTimeout(() => {
+                        backdrop.classList.remove('modal-backdrop-fade-in');
+                        content.classList.remove('modal-slide-in');
+                    }, 400);
+                };
+            }
+        });
+    }
+
+    initDarkMode() {
+        // 初始化黑暗模式状态
+        this.isDarkMode = localStorage.getItem('dark-mode') === 'true';
+        this.isTransitioning = false; // 添加过渡状态标志
+        this.transitionTimeouts = []; // 存储所有定时器ID
+        this.applyTheme(this.isDarkMode, false); // 初始化时不播放动画
+        
+        // 绑定切换按钮事件
+        const darkModeToggle = document.getElementById('darkModeToggle');
+        darkModeToggle.addEventListener('click', (e) => {
+            this.toggleDarkMode(e);
+        });
+        
+        // 更新按钮状态
+        this.updateDarkModeButton();
+    }
+
+    toggleDarkMode(event) {
+        // 防止频繁点击
+        if (this.isTransitioning) {
+            return;
+        }
+        
+        // 设置过渡状态
+        this.isTransitioning = true;
+        this.isDarkMode = !this.isDarkMode;
+        localStorage.setItem('dark-mode', this.isDarkMode.toString());
+        
+        // 清除之前的所有定时器
+        this.clearTransitionTimeouts();
+        
+        // 添加过渡状态样式
+        const toggle = document.getElementById('darkModeToggle');
+        toggle.classList.add('transitioning');
+        
+        // 获取点击位置
+        const rect = event.target.closest('.dark-mode-toggle').getBoundingClientRect();
+        const x = ((rect.left + rect.width / 2) / window.innerWidth) * 100;
+        const y = ((rect.top + rect.height / 2) / window.innerHeight) * 100;
+        
+        // 播放主题切换动画
+        this.playThemeTransition(x, y, () => {
+            this.applyTheme(this.isDarkMode, true);
+            this.updateDarkModeButton();
+        });
+    }
+    
+    clearTransitionTimeouts() {
+        // 清除所有定时器
+        this.transitionTimeouts.forEach(timeoutId => {
+            clearTimeout(timeoutId);
+        });
+        this.transitionTimeouts = [];
+        
+        // 立即清理动画状态
+        const overlay = document.getElementById('themeTransitionOverlay');
+        const toggle = document.getElementById('darkModeToggle');
+        
+        if (overlay) {
+            overlay.classList.remove('active');
+        }
+        if (toggle) {
+            toggle.classList.remove('active', 'transitioning');
+        }
+    }
+
+    playThemeTransition(x, y, callback) {
+        const overlay = document.getElementById('themeTransitionOverlay');
+        const toggle = document.getElementById('darkModeToggle');
+        
+        // 添加按钮激活状态
+        toggle.classList.add('active');
+        
+        // 开始淡入效果
+        overlay.classList.add('active');
+        
+        // 在动画中点切换主题
+        const timeout1 = setTimeout(() => {
+            if (!this.isTransitioning) return;
+            callback();
+        }, 150);
+        this.transitionTimeouts.push(timeout1);
+        
+        // 结束动画
+        const timeout2 = setTimeout(() => {
+            overlay.classList.remove('active');
+            const timeout3 = setTimeout(() => {
+                toggle.classList.remove('active', 'transitioning');
+                // 重置过渡状态
+                this.isTransitioning = false;
+                this.transitionTimeouts = [];
+                // 确保按钮状态正确
+                this.updateDarkModeButton();
+            }, 50);
+            this.transitionTimeouts.push(timeout3);
+        }, 300);
+        this.transitionTimeouts.push(timeout2);
+    }
+
+    applyTheme(isDark, animated = true) {
+        const html = document.documentElement;
+        const body = document.body;
+        
+        if (isDark) {
+            html.setAttribute('data-theme', 'dark');
+            body.classList.add('dark');
+        } else {
+            html.removeAttribute('data-theme');
+            body.classList.remove('dark');
+        }
+        
+        // 如果需要动画，添加过渡类
+        if (animated) {
+            body.style.transition = 'all 0.6s cubic-bezier(0.23, 1, 0.32, 1)';
+            setTimeout(() => {
+                body.style.transition = '';
+            }, 600);
+        }
+    }
+
+    updateDarkModeButton() {
+        const toggle = document.getElementById('darkModeToggle');
+        const icon = toggle.querySelector('.magic-wand');
+        
+        // 确保不会在过渡动画期间错误地移除active类
+        if (this.isDarkMode) {
+            // 只更新图标和标题，不影响active状态（由动画控制）
+            icon.classList.remove('fa-magic');
+            icon.classList.add('fa-moon');
+            toggle.title = '切换到亮色模式';
+        } else {
+            icon.classList.remove('fa-moon');
+            icon.classList.add('fa-magic');
+            toggle.title = '切换到黑暗模式';
+        }
+        
+        // 只有在非过渡状态下才更新active类
+        if (!this.isTransitioning) {
+            if (this.isDarkMode) {
+                toggle.classList.add('active');
+            } else {
+                toggle.classList.remove('active');
+            }
+        }
     }
 
     initAuth() {
@@ -321,10 +599,11 @@ class PluginMarketplace {
             if (response.ok) {
                 const data = await response.json();
                 if (data.success) {
-                    document.getElementById('totalPlugins').textContent = data.data.total_plugins || '0';
-                    document.getElementById('activeDevs').textContent = (data.data.total_users || 0).toLocaleString();
-                    document.getElementById('totalDownloads').textContent = (data.data.total_downloads || 0).toLocaleString();
-                    document.getElementById('weeklyNew').textContent = (data.data.weekly_new || 0).toLocaleString();
+                    // 使用动画效果更新统计数字
+                    this.animateNumbers(document.getElementById('totalPlugins'), 0, data.data.total_plugins || 0);
+                    this.animateNumbers(document.getElementById('activeDevs'), 0, data.data.total_users || 0);
+                    this.animateNumbers(document.getElementById('totalDownloads'), 0, data.data.total_downloads || 0);
+                    this.animateNumbers(document.getElementById('weeklyNew'), 0, data.data.weekly_new || 0);
                 }
             }
         } catch (error) {
@@ -532,12 +811,22 @@ class PluginMarketplace {
         
         grid.innerHTML = this.plugins.map(plugin => this.createPluginCard(plugin)).join('');
 
-        // Add click events to plugin cards
-        grid.querySelectorAll('.plugin-card').forEach(card => {
+        // Add click events to plugin cards and stagger animations
+        grid.querySelectorAll('.plugin-card').forEach((card, index) => {
             card.addEventListener('click', () => {
                 const pluginId = card.dataset.pluginId;
                 this.showPluginDetail(pluginId);
             });
+            
+            // 添加渐进式进入动画
+            card.style.opacity = '0';
+            card.style.transform = 'translateY(40px) scale(0.95)';
+            
+            setTimeout(() => {
+                card.classList.add('card-slide-in');
+                card.style.opacity = '';
+                card.style.transform = '';
+            }, index * 100); // 每个卡片延迟100ms
         });
     }
 
@@ -1076,8 +1365,8 @@ class PluginMarketplace {
     showNotification(message, type = 'info') {
         const notification = document.createElement('div');
         notification.className = `fixed top-4 right-4 px-6 py-3 rounded-lg text-white z-50 transform transition-all duration-300 ${
-            type === 'error' ? 'bg-red-500' : 
-            type === 'success' ? 'bg-green-500' : 
+            type === 'error' ? 'bg-red-500 error-shake' : 
+            type === 'success' ? 'bg-green-500 success-bounce' : 
             'bg-blue-500'
         }`;
         notification.textContent = message;
@@ -1159,7 +1448,12 @@ class PluginMarketplace {
         document.querySelectorAll('.rating-star').forEach((star, index) => {
             if (index < rating) {
                 star.classList.remove('text-gray-300');
-                star.classList.add('text-yellow-400');
+                star.classList.add('text-yellow-400', 'star-glow');
+                
+                // 移除动画类，以便重复播放
+                setTimeout(() => {
+                    star.classList.remove('star-glow');
+                }, 300);
             } else {
                 star.classList.remove('text-yellow-400');
                 star.classList.add('text-gray-300');
