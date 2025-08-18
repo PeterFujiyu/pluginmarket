@@ -1,0 +1,862 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GeekTools 管理面板</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        // 基础黑白灰色彩系统
+                        'primary': {
+                            50: '#FAFAFA',
+                            100: '#F5F5F5',
+                            200: '#E5E5E5',
+                            300: '#D4D4D4',
+                            400: '#A3A3A3',
+                            500: '#737373',
+                            600: '#525252',
+                            700: '#404040',
+                            800: '#262626',
+                            900: '#171717',
+                        },
+                        // 功能色彩(最小化使用)
+                        'accent': '#000000',
+                        'success': '#22C55E',
+                        'error': '#EF4444',
+                        'warning': '#F59E0B',
+                    },
+                    fontFamily: {
+                        'mono': ['Monaco', 'Menlo', 'Ubuntu Mono', 'monospace'],
+                        'system': ['system-ui', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'sans-serif'],
+                    }
+                }
+            }
+        }
+    </script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        /* CSS变量系统 - 黑白灰极简配色 */
+        :root {
+            /* 基础色彩 */
+            --color-black: #000000;
+            --color-white: #FFFFFF;
+            
+            /* 灰度层次 */
+            --color-gray-50: #FAFAFA;
+            --color-gray-100: #F5F5F5;
+            --color-gray-200: #E5E5E5;
+            --color-gray-300: #D4D4D4;
+            --color-gray-400: #A3A3A3;
+            --color-gray-500: #737373;
+            --color-gray-600: #525252;
+            --color-gray-700: #404040;
+            --color-gray-800: #262626;
+            --color-gray-900: #171717;
+            
+            /* 功能色彩 */
+            --color-accent: #000000;
+            --color-success: #22C55E;
+            --color-error: #EF4444;
+            --color-warning: #F59E0B;
+        }
+
+        /* 暗色模式配色 */
+        [data-theme="dark"] {
+            --color-black: #FFFFFF;
+            --color-white: #000000;
+            --color-gray-50: #0A0A0A;
+            --color-gray-100: #1A1A1A;
+            --color-gray-200: #2A2A2A;
+            --color-gray-300: #3A3A3A;
+            --color-gray-400: #525252;
+            --color-gray-500: #737373;
+            --color-gray-600: #A3A3A3;
+            --color-gray-700: #D4D4D4;
+            --color-gray-800: #E5E5E5;
+            --color-gray-900: #F5F5F5;
+        }
+
+        /* 全局样式 - 极简纯色背景 */
+        body {
+            background: var(--color-white);
+            color: var(--color-black);
+            transition: all 0.3s ease;
+            font-family: 'system-ui', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'sans-serif';
+        }
+
+        /* Header - 极简设计 */
+        .header-rewrite {
+            background: var(--color-white);
+            border-bottom: 1px solid var(--color-gray-200);
+            padding: 0;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            transition: all 0.3s ease;
+        }
+
+        .header-inner {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 16px 24px;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        /* Logo - 极简设计 */
+        .logo-minimal {
+            font-family: monospace;
+            font-size: 1.25rem;
+            font-weight: 900;
+            color: var(--color-black);
+            text-decoration: none;
+            letter-spacing: -0.02em;
+            transition: all 0.2s ease;
+        }
+
+        .logo-minimal:hover {
+            transform: scale(1.02);
+        }
+
+        /* 极简按钮系统 */
+        .btn-primary {
+            background: var(--color-black);
+            color: var(--color-white);
+            border: 2px solid var(--color-black);
+            border-radius: 0;
+            padding: 12px 24px;
+            font-weight: 600;
+            font-family: monospace;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            transition: all 0.2s ease;
+            cursor: pointer;
+        }
+
+        .btn-primary:hover {
+            background: var(--color-white);
+            color: var(--color-black);
+            border-color: var(--color-black);
+        }
+
+        .btn-secondary {
+            background: transparent;
+            color: var(--color-black);
+            border: 1px solid var(--color-gray-300);
+            border-radius: 0;
+            padding: 12px 24px;
+            font-weight: 500;
+            transition: all 0.2s ease;
+            cursor: pointer;
+        }
+
+        .btn-secondary:hover {
+            border-color: var(--color-black);
+            background: var(--color-gray-50);
+        }
+
+        .btn-ghost {
+            background: none;
+            border: none;
+            color: var(--color-gray-600);
+            padding: 8px 16px;
+            text-decoration: underline;
+            text-underline-offset: 4px;
+            transition: all 0.2s ease;
+            cursor: pointer;
+        }
+
+        .btn-ghost:hover {
+            color: var(--color-black);
+            text-decoration-thickness: 2px;
+        }
+
+        .btn-danger {
+            background: var(--color-error);
+            color: var(--color-white);
+            border: 2px solid var(--color-error);
+            border-radius: 0;
+            padding: 8px 16px;
+            font-weight: 500;
+            transition: all 0.2s ease;
+            cursor: pointer;
+        }
+
+        .btn-danger:hover {
+            background: var(--color-white);
+            color: var(--color-error);
+            border-color: var(--color-error);
+        }
+
+        .btn-success {
+            background: var(--color-success);
+            color: var(--color-white);
+            border: 2px solid var(--color-success);
+            border-radius: 0;
+            padding: 8px 16px;
+            font-weight: 500;
+            transition: all 0.2s ease;
+            cursor: pointer;
+        }
+
+        .btn-success:hover {
+            background: var(--color-white);
+            color: var(--color-success);
+            border-color: var(--color-success);
+        }
+
+        /* 极简卡片设计 */
+        .card-minimal {
+            background: var(--color-white);
+            border: 1px solid var(--color-gray-200);
+            border-radius: 0;
+            box-shadow: none;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            padding: 24px;
+        }
+
+        .card-minimal:hover {
+            border-color: var(--color-gray-300);
+            box-shadow: 
+                0 4px 12px rgba(0, 0, 0, 0.05),
+                0 0 0 1px rgba(0, 0, 0, 0.05);
+        }
+
+        /* 数据表格美学 */
+        .data-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-family: monospace;
+            font-size: 0.875rem;
+        }
+
+        .data-table th {
+            background: var(--color-black);
+            color: var(--color-white);
+            padding: 12px 16px;
+            text-align: left;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            border: 1px solid var(--color-black);
+        }
+
+        .data-table td {
+            padding: 12px 16px;
+            border: 1px solid var(--color-gray-200);
+            vertical-align: top;
+            background: var(--color-white);
+        }
+
+        .data-table tbody tr:hover {
+            background: var(--color-gray-50);
+        }
+
+        /* 输入框样式 */
+        .form-input {
+            width: 100%;
+            border: 1px solid var(--color-gray-300);
+            border-radius: 0;
+            padding: 12px 16px;
+            font-size: 14px;
+            background: var(--color-white);
+            transition: border-color 0.2s ease;
+            font-family: monospace;
+        }
+
+        .form-input:focus {
+            outline: none;
+            border-color: var(--color-black);
+        }
+
+        .form-textarea {
+            width: 100%;
+            border: 1px solid var(--color-gray-300);
+            border-radius: 0;
+            padding: 12px 16px;
+            font-size: 14px;
+            background: var(--color-white);
+            transition: border-color 0.2s ease;
+            font-family: monospace;
+            resize: vertical;
+            min-height: 120px;
+        }
+
+        .form-textarea:focus {
+            outline: none;
+            border-color: var(--color-black);
+        }
+
+        /* 排版层次 - 基于尺寸而非颜色 */
+        .text-hero {
+            font-size: 3rem;
+            font-weight: 900;
+            line-height: 1.1;
+            letter-spacing: -0.02em;
+        }
+
+        .text-title {
+            font-size: 1.5rem;
+            font-weight: 700;
+            line-height: 1.3;
+        }
+
+        .text-subtitle {
+            font-size: 1.25rem;
+            font-weight: 600;
+            line-height: 1.4;
+        }
+
+        .text-body {
+            font-size: 1rem;
+            font-weight: 400;
+            line-height: 1.6;
+        }
+
+        .text-caption {
+            font-size: 0.875rem;
+            font-weight: 500;
+            line-height: 1.5;
+            color: var(--color-gray-600);
+        }
+
+        .text-micro {
+            font-size: 0.75rem;
+            font-weight: 400;
+            line-height: 1.4;
+            color: var(--color-gray-500);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        /* 终端美学 */
+        .terminal-theme {
+            background: var(--color-black);
+            color: var(--color-white);
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+            padding: 24px;
+            position: relative;
+            border: 2px solid var(--color-black);
+        }
+
+        .terminal-theme::before {
+            content: '> ';
+            color: var(--color-gray-400);
+        }
+
+        /* 状态指示器 */
+        .status-bar {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            padding: 8px 16px;
+            background: var(--color-gray-100);
+            border-top: 1px solid var(--color-gray-200);
+            font-family: monospace;
+            font-size: 0.75rem;
+        }
+
+        .status-item {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            color: var(--color-gray-600);
+        }
+
+        .status-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: var(--color-success);
+        }
+
+        .status-dot.error { background: var(--color-error); }
+        .status-dot.warning { background: var(--color-warning); }
+        .status-dot.inactive { background: var(--color-gray-400); }
+
+        /* 选择框样式 */
+        .modern-select {
+            background: var(--color-white);
+            border: 1px solid var(--color-gray-300);
+            border-radius: 0;
+            padding: 8px 32px 8px 12px;
+            font-size: 14px;
+            font-family: monospace;
+            appearance: none;
+            background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%23525252' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e");
+            background-position: right 8px center;
+            background-repeat: no-repeat;
+            background-size: 16px;
+            transition: border-color 0.2s ease;
+        }
+
+        .modern-select:focus {
+            outline: none;
+            border-color: var(--color-black);
+        }
+
+        /* 主题切换按钮 */
+        .theme-toggle {
+            background: var(--color-white);
+            border: 1px solid var(--color-gray-300);
+            color: var(--color-gray-600);
+            padding: 8px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .theme-toggle:hover {
+            border-color: var(--color-black);
+            color: var(--color-black);
+        }
+
+        /* 加载状态 */
+        .spinner {
+            border: 2px solid var(--color-gray-200);
+            border-top: 2px solid var(--color-black);
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        /* 导航标签 */
+        .nav-tabs {
+            display: flex;
+            border-bottom: 2px solid var(--color-gray-200);
+            margin-bottom: 24px;
+        }
+
+        .nav-tab {
+            padding: 12px 24px;
+            font-family: monospace;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            border: none;
+            background: none;
+            color: var(--color-gray-500);
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+            transition: all 0.2s ease;
+        }
+
+        .nav-tab.active {
+            color: var(--color-black);
+            border-bottom-color: var(--color-black);
+        }
+
+        .nav-tab:hover {
+            color: var(--color-black);
+        }
+
+        /* 模态框设计 */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(8px);
+            z-index: 1000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+        }
+
+        .modal-container {
+            background: var(--color-white);
+            border: 2px solid var(--color-black);
+            max-width: 800px;
+            width: 100%;
+            max-height: 90vh;
+            overflow-y: auto;
+            position: relative;
+        }
+
+        /* 响应式设计 */
+        @media (max-width: 768px) {
+            .header-inner {
+                flex-direction: column;
+                gap: 16px;
+                padding: 16px;
+            }
+            
+            .data-table {
+                font-size: 0.75rem;
+            }
+            
+            .data-table th,
+            .data-table td {
+                padding: 8px 12px;
+            }
+        }
+
+        /* 动画效果 */
+        .fade-in {
+            animation: fadeIn 0.6s ease-out;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .slide-up {
+            animation: slideUp 0.4s ease-out;
+        }
+
+        @keyframes slideUp {
+            from { opacity: 0; transform: translateY(40px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* 隐藏/显示状态 */
+        .hidden {
+            display: none !important;
+        }
+
+        /* 成功/错误消息 */
+        .alert {
+            padding: 12px 16px;
+            border: 1px solid;
+            margin-bottom: 16px;
+            font-family: monospace;
+        }
+
+        .alert-success {
+            background: rgba(34, 197, 94, 0.1);
+            border-color: var(--color-success);
+            color: var(--color-success);
+        }
+
+        .alert-error {
+            background: rgba(239, 68, 68, 0.1);
+            border-color: var(--color-error);
+            color: var(--color-error);
+        }
+
+        .alert-warning {
+            background: rgba(245, 158, 11, 0.1);
+            border-color: var(--color-warning);
+            color: var(--color-warning);
+        }
+    </style>
+</head>
+<body>
+    <!-- Header -->
+    <header class="header-rewrite">
+        <div class="header-inner">
+            <!-- Logo -->
+            <div class="flex items-center space-x-3">
+                <a href="index.html" class="logo-minimal">GEEKTOOLS</a>
+                <span class="text-micro">管理面板</span>
+            </div>
+
+            <!-- Navigation -->
+            <nav class="flex items-center space-x-6">
+                <a href="index.html" class="btn-ghost">
+                    <i class="fas fa-home mr-2"></i>返回主页
+                </a>
+                
+                <!-- Theme Toggle -->
+                <button id="darkModeToggle" class="theme-toggle" title="切换主题">
+                    <i class="fas fa-adjust"></i>
+                </button>
+                
+                <!-- User Info -->
+                <div class="flex items-center space-x-3">
+                    <div class="w-8 h-8 bg-black text-white flex items-center justify-center">
+                        <i class="fas fa-user-shield text-sm"></i>
+                    </div>
+                    <span id="adminUserEmail" class="text-caption">admin@example.com</span>
+                    <button id="logoutBtn" class="btn-ghost">
+                        <i class="fas fa-sign-out-alt mr-1"></i>退出
+                    </button>
+                </div>
+            </nav>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="max-w-7xl mx-auto p-6">
+        <!-- Page Title -->
+        <div class="mb-8">
+            <h1 class="text-title mb-2">管理面板</h1>
+            <p class="text-caption">系统管理与数据统计</p>
+        </div>
+
+        <!-- Navigation Tabs -->
+        <div class="nav-tabs">
+            <button class="nav-tab active" data-tab="dashboard">
+                <i class="fas fa-chart-bar mr-2"></i>数据统计
+            </button>
+            <button class="nav-tab" data-tab="users">
+                <i class="fas fa-users mr-2"></i>用户管理
+            </button>
+            <button class="nav-tab" data-tab="plugins">
+                <i class="fas fa-puzzle-piece mr-2"></i>插件管理
+            </button>
+            <button class="nav-tab" data-tab="sql">
+                <i class="fas fa-database mr-2"></i>SQL执行
+            </button>
+        </div>
+
+        <!-- Dashboard Tab -->
+        <div id="dashboard" class="tab-content">
+            <!-- Stats Cards -->
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+                <div class="card-minimal">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-micro">总用户数</p>
+                            <p class="text-title" id="totalUsers">-</p>
+                        </div>
+                        <div class="w-12 h-12 bg-gray-100 border flex items-center justify-center">
+                            <i class="fas fa-users text-xl"></i>
+                        </div>
+                    </div>
+                </div>
+                <div class="card-minimal">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-micro">总插件数</p>
+                            <p class="text-title" id="totalPluginsAdmin">-</p>
+                        </div>
+                        <div class="w-12 h-12 bg-gray-100 border flex items-center justify-center">
+                            <i class="fas fa-puzzle-piece text-xl"></i>
+                        </div>
+                    </div>
+                </div>
+                <div class="card-minimal">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-micro">今日访问</p>
+                            <p class="text-title" id="todayVisits">-</p>
+                        </div>
+                        <div class="w-12 h-12 bg-gray-100 border flex items-center justify-center">
+                            <i class="fas fa-eye text-xl"></i>
+                        </div>
+                    </div>
+                </div>
+                <div class="card-minimal">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-micro">系统状态</p>
+                            <p class="text-title text-success">正常</p>
+                        </div>
+                        <div class="w-12 h-12 bg-gray-100 border flex items-center justify-center">
+                            <i class="fas fa-server text-xl"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Recent Activities -->
+            <div class="card-minimal">
+                <h3 class="text-subtitle mb-4">最近活动</h3>
+                <div class="space-y-3" id="recentActivities">
+                    <!-- Activities will be loaded here -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Users Tab -->
+        <div id="users" class="tab-content hidden">
+            <!-- Search and Actions -->
+            <div class="flex items-center justify-between mb-6">
+                <div class="flex items-center space-x-4">
+                    <input type="text" id="userSearch" placeholder="搜索用户..." class="form-input w-64">
+                    <button id="refreshUsers" class="btn-secondary">
+                        <i class="fas fa-refresh mr-2"></i>刷新
+                    </button>
+                </div>
+                <div class="text-caption">
+                    共 <span id="userCount">0</span> 个用户
+                </div>
+            </div>
+
+            <!-- Users Table -->
+            <div class="card-minimal">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>邮箱</th>
+                            <th>角色</th>
+                            <th>注册时间</th>
+                            <th>最后登录</th>
+                            <th>状态</th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="usersTableBody">
+                        <!-- Users will be loaded here -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Plugins Tab -->
+        <div id="plugins" class="tab-content hidden">
+            <!-- Search and Actions -->
+            <div class="flex items-center justify-between mb-6">
+                <div class="flex items-center space-x-4">
+                    <input type="text" id="pluginSearch" placeholder="搜索插件..." class="form-input w-64">
+                    <select id="statusFilter" class="modern-select">
+                        <option value="">所有状态</option>
+                        <option value="active">已启用</option>
+                        <option value="disabled">已禁用</option>
+                        <option value="pending">待审核</option>
+                    </select>
+                    <button id="refreshPlugins" class="btn-secondary">
+                        <i class="fas fa-refresh mr-2"></i>刷新
+                    </button>
+                </div>
+                <div class="text-caption">
+                    共 <span id="pluginCountAdmin">0</span> 个插件
+                </div>
+            </div>
+
+            <!-- Plugins Table -->
+            <div class="card-minimal">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>名称</th>
+                            <th>作者</th>
+                            <th>版本</th>
+                            <th>分类</th>
+                            <th>下载量</th>
+                            <th>评分</th>
+                            <th>状态</th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="pluginsTableBody">
+                        <!-- Plugins will be loaded here -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- SQL Tab -->
+        <div id="sql" class="tab-content hidden">
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <!-- SQL Editor -->
+                <div class="card-minimal">
+                    <h3 class="text-subtitle mb-4">SQL 查询执行器</h3>
+                    <form id="sqlForm">
+                        <div class="mb-4">
+                            <label class="block text-caption mb-2">SQL 查询</label>
+                            <textarea id="sqlQuery" class="form-textarea" placeholder="输入 SQL 查询语句..." rows="8"></textarea>
+                        </div>
+                        <div class="flex space-x-3">
+                            <button type="submit" class="btn-primary">
+                                <i class="fas fa-play mr-2"></i>执行查询
+                            </button>
+                            <button type="button" id="clearSql" class="btn-secondary">
+                                <i class="fas fa-eraser mr-2"></i>清空
+                            </button>
+                        </div>
+                    </form>
+                </div>
+
+                <!-- Quick Queries -->
+                <div class="card-minimal">
+                    <h3 class="text-subtitle mb-4">快速查询</h3>
+                    <div class="space-y-2">
+                        <button class="btn-ghost w-full text-left quick-query" data-query="SELECT * FROM users ORDER BY created_at DESC LIMIT 10">
+                            查看最新用户
+                        </button>
+                        <button class="btn-ghost w-full text-left quick-query" data-query="SELECT * FROM plugins ORDER BY downloads DESC LIMIT 10">
+                            查看热门插件
+                        </button>
+                        <button class="btn-ghost w-full text-left quick-query" data-query="SELECT COUNT(*) as total_users FROM users">
+                            统计用户总数
+                        </button>
+                        <button class="btn-ghost w-full text-left quick-query" data-query="SELECT COUNT(*) as total_plugins FROM plugins">
+                            统计插件总数
+                        </button>
+                        <button class="btn-ghost w-full text-left quick-query" data-query="SELECT * FROM ratings ORDER BY created_at DESC LIMIT 10">
+                            查看最新评分
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Query Results -->
+            <div id="sqlResults" class="mt-6 hidden">
+                <div class="card-minimal">
+                    <div class="flex items-center justify-between mb-4">
+                        <h3 class="text-subtitle">查询结果</h3>
+                        <button id="clearResults" class="btn-ghost">
+                            <i class="fas fa-times mr-1"></i>清空结果
+                        </button>
+                    </div>
+                    <div id="sqlResultsContent" class="terminal-theme">
+                        <!-- Results will be displayed here -->
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Status Bar -->
+    <div class="status-bar">
+        <div class="status-item">
+            <div class="status-dot"></div>
+            <span>系统正常</span>
+        </div>
+        <div class="status-item">
+            <i class="fas fa-clock mr-1"></i>
+            <span id="currentTime">--:--:--</span>
+        </div>
+        <div class="status-item">
+            <i class="fas fa-user mr-1"></i>
+            <span>管理员模式</span>
+        </div>
+    </div>
+
+    <!-- Action Modal -->
+    <div id="actionModal" class="modal-overlay hidden">
+        <div class="modal-container max-w-md">
+            <div class="p-6">
+                <div class="flex items-center justify-between mb-6">
+                    <h2 class="text-subtitle" id="modalTitle">确认操作</h2>
+                    <button id="closeActionModal" class="btn-ghost">
+                        <i class="fas fa-times text-xl"></i>
+                    </button>
+                </div>
+                
+                <div class="mb-6">
+                    <p id="modalMessage" class="text-body">确定要执行此操作吗？</p>
+                </div>
+                
+                <div class="flex space-x-3">
+                    <button id="cancelAction" class="btn-secondary flex-1">取消</button>
+                    <button id="confirmAction" class="btn-danger flex-1">确认</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="config.js"></script>
+    <script src="admin.js"></script>
+</body>
+</html>

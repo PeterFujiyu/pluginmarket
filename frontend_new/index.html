@@ -1,0 +1,891 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GeekTools 插件市场</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        // 基础黑白灰色彩系统
+                        'primary': {
+                            50: '#FAFAFA',
+                            100: '#F5F5F5',
+                            200: '#E5E5E5',
+                            300: '#D4D4D4',
+                            400: '#A3A3A3',
+                            500: '#737373',
+                            600: '#525252',
+                            700: '#404040',
+                            800: '#262626',
+                            900: '#171717',
+                        },
+                        // 功能色彩(最小化使用)
+                        'accent': '#000000',
+                        'success': '#22C55E',
+                        'error': '#EF4444',
+                        'warning': '#F59E0B',
+                    },
+                    fontFamily: {
+                        'mono': ['Monaco', 'Menlo', 'Ubuntu Mono', 'monospace'],
+                        'system': ['system-ui', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'sans-serif'],
+                    }
+                }
+            }
+        }
+    </script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        /* CSS变量系统 - 黑白灰极简配色 */
+        :root {
+            /* 基础色彩 */
+            --color-black: #000000;
+            --color-white: #FFFFFF;
+            
+            /* 灰度层次 */
+            --color-gray-50: #FAFAFA;
+            --color-gray-100: #F5F5F5;
+            --color-gray-200: #E5E5E5;
+            --color-gray-300: #D4D4D4;
+            --color-gray-400: #A3A3A3;
+            --color-gray-500: #737373;
+            --color-gray-600: #525252;
+            --color-gray-700: #404040;
+            --color-gray-800: #262626;
+            --color-gray-900: #171717;
+            
+            /* 功能色彩 */
+            --color-accent: #000000;
+            --color-success: #22C55E;
+            --color-error: #EF4444;
+            --color-warning: #F59E0B;
+        }
+
+        /* 暗色模式配色 */
+        [data-theme="dark"] {
+            --color-black: #FFFFFF;
+            --color-white: #000000;
+            --color-gray-50: #0A0A0A;
+            --color-gray-100: #1A1A1A;
+            --color-gray-200: #2A2A2A;
+            --color-gray-300: #3A3A3A;
+            --color-gray-400: #525252;
+            --color-gray-500: #737373;
+            --color-gray-600: #A3A3A3;
+            --color-gray-700: #D4D4D4;
+            --color-gray-800: #E5E5E5;
+            --color-gray-900: #F5F5F5;
+        }
+
+        /* 全局样式 - 极简纯色背景 */
+        body {
+            background: var(--color-white);
+            color: var(--color-black);
+            transition: all 0.3s ease;
+            font-family: 'system-ui', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'sans-serif';
+        }
+
+        /* 纹理背景 - 微妙的噪点增加质感 */
+        .textured-background {
+            background: var(--color-white);
+            position: relative;
+        }
+
+        .textured-background::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-image: 
+                radial-gradient(circle at 1px 1px, var(--color-gray-200) 1px, transparent 0);
+            background-size: 20px 20px;
+            opacity: 0.5;
+            pointer-events: none;
+        }
+
+        /* Header - 极简设计 */
+        .header-rewrite {
+            background: var(--color-white);
+            border-bottom: 1px solid var(--color-gray-200);
+            padding: 0;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            transition: all 0.3s ease;
+        }
+
+        .header-inner {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 16px 24px;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        /* Logo - 极简设计 */
+        .logo-minimal {
+            font-family: monospace;
+            font-size: 1.25rem;
+            font-weight: 900;
+            color: var(--color-black);
+            text-decoration: none;
+            letter-spacing: -0.02em;
+            transition: all 0.2s ease;
+        }
+
+        .logo-minimal:hover {
+            transform: scale(1.02);
+        }
+
+        /* 搜索框 - 极简设计 */
+        .search-bar-minimal {
+            flex: 1;
+            max-width: 400px;
+            margin: 0 32px;
+            position: relative;
+        }
+
+        .search-input {
+            width: 100%;
+            border: 1px solid var(--color-gray-300);
+            border-radius: 0;
+            padding: 12px 16px 12px 40px;
+            font-size: 14px;
+            background: var(--color-white);
+            transition: border-color 0.2s ease;
+        }
+
+        .search-input:focus {
+            outline: none;
+            border-color: var(--color-black);
+        }
+
+        .search-icon {
+            position: absolute;
+            left: 12px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--color-gray-500);
+        }
+
+        /* 极简按钮系统 */
+        .btn-primary {
+            background: var(--color-black);
+            color: var(--color-white);
+            border: 2px solid var(--color-black);
+            border-radius: 0;
+            padding: 12px 24px;
+            font-weight: 600;
+            font-family: monospace;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            transition: all 0.2s ease;
+            cursor: pointer;
+        }
+
+        .btn-primary:hover {
+            background: var(--color-white);
+            color: var(--color-black);
+            border-color: var(--color-black);
+        }
+
+        .btn-secondary {
+            background: transparent;
+            color: var(--color-black);
+            border: 1px solid var(--color-gray-300);
+            border-radius: 0;
+            padding: 12px 24px;
+            font-weight: 500;
+            transition: all 0.2s ease;
+            cursor: pointer;
+        }
+
+        .btn-secondary:hover {
+            border-color: var(--color-black);
+            background: var(--color-gray-50);
+        }
+
+        .btn-ghost {
+            background: none;
+            border: none;
+            color: var(--color-gray-600);
+            padding: 8px 16px;
+            text-decoration: underline;
+            text-underline-offset: 4px;
+            transition: all 0.2s ease;
+            cursor: pointer;
+        }
+
+        .btn-ghost:hover {
+            color: var(--color-black);
+            text-decoration-thickness: 2px;
+        }
+
+        /* 极简卡片设计 */
+        .card-minimal {
+            background: var(--color-white);
+            border: 1px solid var(--color-gray-200);
+            border-radius: 0;
+            box-shadow: none;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            padding: 24px;
+        }
+
+        .card-minimal:hover {
+            border-color: var(--color-gray-300);
+            box-shadow: 
+                0 4px 12px rgba(0, 0, 0, 0.05),
+                0 0 0 1px rgba(0, 0, 0, 0.05);
+        }
+
+        /* 插件网格 - 更紧密的布局 */
+        .plugin-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 1px;
+            background: var(--color-gray-200);
+            padding: 1px;
+        }
+
+        .plugin-card {
+            background: var(--color-white);
+            padding: 32px;
+            position: relative;
+            transition: background-color 0.2s ease;
+            cursor: pointer;
+        }
+
+        .plugin-card:hover {
+            background: var(--color-gray-50);
+        }
+
+        /* 统计卡片 */
+        .stats-card {
+            background: var(--color-white);
+            border: 1px solid var(--color-gray-200);
+            padding: 24px;
+            transition: all 0.2s ease;
+        }
+
+        .stats-card:hover {
+            border-color: var(--color-gray-400);
+            background: var(--color-gray-50);
+        }
+
+        /* 模态框设计 */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(8px);
+            z-index: 1000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+        }
+
+        .modal-container {
+            background: var(--color-white);
+            border: 2px solid var(--color-black);
+            max-width: 800px;
+            width: 100%;
+            max-height: 90vh;
+            overflow-y: auto;
+            position: relative;
+        }
+
+        /* 排版层次 - 基于尺寸而非颜色 */
+        .text-hero {
+            font-size: 3rem;
+            font-weight: 900;
+            line-height: 1.1;
+            letter-spacing: -0.02em;
+        }
+
+        .text-title {
+            font-size: 1.5rem;
+            font-weight: 700;
+            line-height: 1.3;
+        }
+
+        .text-subtitle {
+            font-size: 1.25rem;
+            font-weight: 600;
+            line-height: 1.4;
+        }
+
+        .text-body {
+            font-size: 1rem;
+            font-weight: 400;
+            line-height: 1.6;
+        }
+
+        .text-caption {
+            font-size: 0.875rem;
+            font-weight: 500;
+            line-height: 1.5;
+            color: var(--color-gray-600);
+        }
+
+        .text-micro {
+            font-size: 0.75rem;
+            font-weight: 400;
+            line-height: 1.4;
+            color: var(--color-gray-500);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        /* 特效系统 */
+        /* 磁性吸附效果 */
+        @keyframes magneticPull {
+            0% { transform: scale(1) rotate(0deg); }
+            50% { transform: scale(1.02) rotate(0.5deg); }
+            100% { transform: scale(1) rotate(0deg); }
+        }
+
+        .magnetic-effect {
+            cursor: pointer;
+            transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+
+        .magnetic-effect:hover {
+            animation: magneticPull 0.6s ease-out;
+        }
+
+        /* 扫描线效果 */
+        @keyframes scanLine {
+            0% { transform: translateX(-100%); opacity: 0; }
+            50% { opacity: 1; }
+            100% { transform: translateX(100%); opacity: 0; }
+        }
+
+        .scan-effect {
+            position: relative;
+            overflow: hidden;
+        }
+
+        .scan-effect::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 2px;
+            background: linear-gradient(90deg, 
+                transparent 0%, 
+                var(--color-black) 50%, 
+                transparent 100%);
+            animation: scanLine 2s ease-in-out infinite;
+        }
+
+        /* 进度条动画 */
+        .progress-bar {
+            width: 100%;
+            height: 2px;
+            background: var(--color-gray-200);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: var(--color-black);
+            transform: translateX(-100%);
+            transition: transform 1s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .progress-bar.animate .progress-fill {
+            transform: translateX(0);
+        }
+
+        /* 数字计数动画 */
+        @keyframes numberCount {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .number-counter {
+            font-variant-numeric: tabular-nums;
+            font-family: monospace;
+        }
+
+        .number-counter.animate {
+            animation: numberCount 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        /* 选择框样式 */
+        .modern-select {
+            background: var(--color-white);
+            border: 1px solid var(--color-gray-300);
+            border-radius: 0;
+            padding: 8px 32px 8px 12px;
+            font-size: 14px;
+            appearance: none;
+            background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%23525252' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e");
+            background-position: right 8px center;
+            background-repeat: no-repeat;
+            background-size: 16px;
+            transition: border-color 0.2s ease;
+        }
+
+        .modern-select:focus {
+            outline: none;
+            border-color: var(--color-black);
+        }
+
+        /* 主题切换按钮 */
+        .theme-toggle {
+            background: var(--color-white);
+            border: 1px solid var(--color-gray-300);
+            color: var(--color-gray-600);
+            padding: 8px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .theme-toggle:hover {
+            border-color: var(--color-black);
+            color: var(--color-black);
+        }
+
+        /* 加载状态 */
+        .spinner {
+            border: 2px solid var(--color-gray-200);
+            border-top: 2px solid var(--color-black);
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        /* 响应式设计 */
+        @media (max-width: 768px) {
+            .plugin-grid {
+                grid-template-columns: 1fr;
+                gap: 2px;
+            }
+            
+            .plugin-card {
+                padding: 16px;
+            }
+            
+            .header-inner {
+                flex-direction: column;
+                gap: 16px;
+                padding: 16px;
+            }
+            
+            .search-bar-minimal {
+                margin: 0;
+                max-width: none;
+                width: 100%;
+            }
+        }
+
+        /* 动画效果 */
+        .fade-in {
+            animation: fadeIn 0.6s ease-out;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .slide-up {
+            animation: slideUp 0.4s ease-out;
+        }
+
+        @keyframes slideUp {
+            from { opacity: 0; transform: translateY(40px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* 隐藏/显示状态 */
+        .hidden {
+            display: none !important;
+        }
+    </style>
+</head>
+<body class="textured-background">
+    <!-- Header -->
+    <header class="header-rewrite">
+        <div class="header-inner">
+            <!-- Logo -->
+            <div class="flex items-center space-x-3">
+                <a href="#" class="logo-minimal">GEEKTOOLS</a>
+                <span class="text-micro">插件市场</span>
+            </div>
+
+            <!-- Search Bar -->
+            <div class="search-bar-minimal">
+                <div class="relative">
+                    <input type="text" 
+                           id="searchInput"
+                           placeholder="搜索插件..." 
+                           class="search-input">
+                    <i class="fas fa-search search-icon"></i>
+                </div>
+            </div>
+
+            <!-- Navigation -->
+            <nav class="flex items-center space-x-6">
+                <button class="btn-ghost">浏览</button>
+                <button class="btn-ghost">分类</button>
+                
+                <!-- Theme Toggle -->
+                <button id="darkModeToggle" class="theme-toggle" title="切换主题">
+                    <i class="fas fa-adjust"></i>
+                </button>
+                
+                <!-- User Status -->
+                <div id="userAuth" class="flex items-center space-x-4">
+                    <!-- Logged out state -->
+                    <div id="loggedOut" class="flex items-center space-x-4">
+                        <button id="loginBtn" class="btn-ghost">登录</button>
+                        <button id="uploadBtn" class="btn-secondary opacity-50 cursor-not-allowed" disabled title="请先登录">
+                            <i class="fas fa-upload mr-2"></i>上传插件
+                        </button>
+                    </div>
+                    
+                    <!-- Logged in state -->
+                    <div id="loggedIn" class="hidden flex items-center space-x-4">
+                        <div class="flex items-center space-x-2">
+                            <div class="w-8 h-8 bg-black text-white rounded-full flex items-center justify-center">
+                                <i class="fas fa-user text-sm"></i>
+                            </div>
+                            <span id="userEmail" class="text-caption"></span>
+                            <span id="userRole" class="hidden text-micro px-2 py-1 bg-gray-100 border">管理员</span>
+                        </div>
+                        <a id="adminPanelLink" href="admin.html" class="hidden btn-ghost">
+                            <i class="fas fa-shield-alt mr-1"></i>管理面板
+                        </a>
+                        <button id="uploadBtnLoggedIn" class="btn-primary">
+                            <i class="fas fa-upload mr-2"></i>上传插件
+                        </button>
+                        <button id="logoutBtn" class="btn-ghost">退出</button>
+                    </div>
+                </div>
+            </nav>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="max-w-6xl mx-auto p-6">
+        <!-- Stats Section -->
+        <section class="mb-12">
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-1 bg-gray-200 p-1">
+                <div class="stats-card">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-micro">总插件数</p>
+                            <p class="text-title number-counter" id="totalPlugins">-</p>
+                        </div>
+                        <div class="w-12 h-12 bg-gray-100 border flex items-center justify-center">
+                            <i class="fas fa-puzzle-piece text-xl"></i>
+                        </div>
+                    </div>
+                </div>
+                <div class="stats-card">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-micro">活跃开发者</p>
+                            <p class="text-title number-counter" id="activeDevs">-</p>
+                        </div>
+                        <div class="w-12 h-12 bg-gray-100 border flex items-center justify-center">
+                            <i class="fas fa-users text-xl"></i>
+                        </div>
+                    </div>
+                </div>
+                <div class="stats-card">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-micro">总下载量</p>
+                            <p class="text-title number-counter" id="totalDownloads">-</p>
+                        </div>
+                        <div class="w-12 h-12 bg-gray-100 border flex items-center justify-center">
+                            <i class="fas fa-download text-xl"></i>
+                        </div>
+                    </div>
+                </div>
+                <div class="stats-card">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-micro">本周新增</p>
+                            <p class="text-title number-counter" id="weeklyNew">-</p>
+                        </div>
+                        <div class="w-12 h-12 bg-gray-100 border flex items-center justify-center">
+                            <i class="fas fa-plus text-xl"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Filter and Sort Section -->
+        <section class="mb-8">
+            <div class="flex items-center justify-between border-b border-gray-200 pb-4">
+                <div class="flex items-center space-x-6">
+                    <h2 class="text-title">插件列表</h2>
+                    <div class="flex items-center space-x-4">
+                        <select id="categoryFilter" class="modern-select">
+                            <option value="">所有分类</option>
+                            <option value="system">系统工具</option>
+                            <option value="development">开发工具</option>
+                            <option value="utility">实用工具</option>
+                            <option value="network">网络工具</option>
+                        </select>
+                        <select id="sortFilter" class="modern-select">
+                            <option value="downloads">按下载量</option>
+                            <option value="rating">按评分</option>
+                            <option value="updated_at">按更新时间</option>
+                            <option value="name">按名称</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="text-caption">
+                    共 <span id="pluginCount">0</span> 个插件
+                </div>
+            </div>
+        </section>
+
+        <!-- Plugin Grid -->
+        <section class="mb-8">
+            <div id="pluginGrid" class="plugin-grid">
+                <!-- Plugin cards will be inserted here -->
+            </div>
+            
+            <!-- Loading State -->
+            <div id="loadingState" class="flex items-center justify-center py-12">
+                <div class="spinner"></div>
+                <span class="ml-3 text-caption">加载中...</span>
+            </div>
+
+            <!-- Empty State -->
+            <div id="emptyState" class="hidden text-center py-12">
+                <div class="w-24 h-24 bg-gray-100 border flex items-center justify-center mx-auto mb-4">
+                    <i class="fas fa-search text-3xl text-gray-400"></i>
+                </div>
+                <h3 class="text-subtitle mb-2">未找到插件</h3>
+                <p class="text-caption">尝试调整搜索条件或浏览其他分类</p>
+            </div>
+        </section>
+
+        <!-- Pagination -->
+        <section id="paginationSection" class="hidden">
+            <div class="flex items-center justify-center space-x-2">
+                <button id="prevPage" class="btn-secondary px-3 py-2 disabled:opacity-50 disabled:cursor-not-allowed">
+                    <i class="fas fa-chevron-left"></i>
+                </button>
+                <div id="pageNumbers" class="flex items-center space-x-1">
+                    <!-- Page numbers will be inserted here -->
+                </div>
+                <button id="nextPage" class="btn-secondary px-3 py-2 disabled:opacity-50 disabled:cursor-not-allowed">
+                    <i class="fas fa-chevron-right"></i>
+                </button>
+            </div>
+        </section>
+    </main>
+
+    <!-- Plugin Detail Modal -->
+    <div id="pluginModal" class="modal-overlay hidden">
+        <div class="modal-container">
+            <div id="modalContent">
+                <!-- Modal content will be inserted here -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Upload Modal -->
+    <div id="uploadModal" class="modal-overlay hidden">
+        <div class="modal-container max-w-2xl">
+            <div class="p-6">
+                <div class="flex items-center justify-between mb-6">
+                    <h2 class="text-title">上传插件</h2>
+                    <button id="closeUploadModal" class="btn-ghost">
+                        <i class="fas fa-times text-xl"></i>
+                    </button>
+                </div>
+                
+                <form id="uploadForm" class="space-y-6">
+                    <div>
+                        <label class="block text-caption mb-2">插件文件</label>
+                        <div class="border-2 border-dashed border-gray-300 p-6 text-center hover:border-black transition-colors">
+                            <input type="file" id="pluginFile" accept=".tar.gz" class="hidden">
+                            <div id="dropArea" class="cursor-pointer">
+                                <i class="fas fa-cloud-upload-alt text-3xl text-gray-400 mb-2"></i>
+                                <p class="text-caption">点击或拖拽上传 .tar.gz 文件</p>
+                                <p class="text-micro mt-1">最大文件大小: 100MB</p>
+                            </div>
+                            <div id="fileInfo" class="hidden">
+                                <i class="fas fa-file-archive text-2xl mb-2"></i>
+                                <p id="fileName" class="font-medium"></p>
+                                <p id="fileSize" class="text-micro"></p>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="flex justify-end space-x-3">
+                        <button type="button" id="cancelUpload" class="btn-secondary">
+                            取消
+                        </button>
+                        <button type="submit" id="submitUpload" class="btn-primary disabled:opacity-50 disabled:cursor-not-allowed" disabled>
+                            <span id="uploadText">上传插件</span>
+                            <div id="uploadSpinner" class="hidden spinner inline-block ml-2"></div>
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Login Modal -->
+    <div id="loginModal" class="modal-overlay hidden">
+        <div class="modal-container max-w-md">
+            <div class="p-6">
+                <div class="flex items-center justify-between mb-6">
+                    <h2 class="text-title">登录/注册</h2>
+                    <button id="closeLoginModal" class="btn-ghost">
+                        <i class="fas fa-times text-xl"></i>
+                    </button>
+                </div>
+                
+                <form id="loginForm" class="space-y-4">
+                    <div>
+                        <label for="emailInput" class="block text-caption mb-2">邮箱地址</label>
+                        <input type="email" 
+                               id="emailInput"
+                               placeholder="请输入您的邮箱地址" 
+                               class="search-input w-full"
+                               required>
+                    </div>
+                    
+                    <!-- Step 1: Send Code -->
+                    <div id="sendCodeStep">
+                        <button type="button" id="sendCodeBtn" class="btn-primary w-full">
+                            发送验证码
+                        </button>
+                    </div>
+                    
+                    <!-- Step 2: Verify Code -->
+                    <div id="verifyCodeStep" class="hidden">
+                        <div class="mb-4">
+                            <label for="codeInput" class="block text-caption mb-2">验证码</label>
+                            <input type="text" 
+                                   id="codeInput"
+                                   placeholder="请输入6位验证码" 
+                                   class="search-input w-full"
+                                   maxlength="6"
+                                   pattern="[0-9]{6}">
+                        </div>
+                        
+                        <div id="codeDisplay" class="hidden mb-4 p-3 bg-gray-50 border">
+                            <p class="text-caption mb-2">您的验证码是：</p>
+                            <p id="displayedCode" class="text-title font-mono tracking-wider"></p>
+                            <p class="text-micro mt-1">请将此验证码输入上方输入框</p>
+                        </div>
+                        
+                        <div class="flex space-x-3">
+                            <button type="button" id="backToEmailBtn" class="btn-secondary flex-1">
+                                返回
+                            </button>
+                            <button type="submit" id="verifyCodeBtn" class="btn-primary flex-1">
+                                <span id="verifyText">登录</span>
+                                <div id="loginSpinner" class="hidden spinner inline-block ml-2"></div>
+                            </button>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Rating Modal -->
+    <div id="ratingModal" class="modal-overlay hidden">
+        <div class="modal-container max-w-md">
+            <div class="p-6">
+                <div class="flex items-center justify-between mb-6">
+                    <h2 class="text-subtitle">为插件评分</h2>
+                    <button id="closeRatingModal" class="btn-ghost">
+                        <i class="fas fa-times text-xl"></i>
+                    </button>
+                </div>
+                
+                <form id="ratingForm" class="space-y-4">
+                    <div>
+                        <label class="block text-caption mb-2">评分 (1-5星)</label>
+                        <div class="flex space-x-1" id="ratingStars">
+                            <button type="button" class="rating-star text-2xl text-gray-300 hover:text-yellow-400 transition-colors" data-rating="1">
+                                <i class="fas fa-star"></i>
+                            </button>
+                            <button type="button" class="rating-star text-2xl text-gray-300 hover:text-yellow-400 transition-colors" data-rating="2">
+                                <i class="fas fa-star"></i>
+                            </button>
+                            <button type="button" class="rating-star text-2xl text-gray-300 hover:text-yellow-400 transition-colors" data-rating="3">
+                                <i class="fas fa-star"></i>
+                            </button>
+                            <button type="button" class="rating-star text-2xl text-gray-300 hover:text-yellow-400 transition-colors" data-rating="4">
+                                <i class="fas fa-star"></i>
+                            </button>
+                            <button type="button" class="rating-star text-2xl text-gray-300 hover:text-yellow-400 transition-colors" data-rating="5">
+                                <i class="fas fa-star"></i>
+                            </button>
+                        </div>
+                        <input type="hidden" id="selectedRating" value="">
+                    </div>
+                    
+                    <div>
+                        <label for="reviewText" class="block text-caption mb-2">评价 (可选)</label>
+                        <textarea id="reviewText" 
+                                placeholder="分享您的使用体验..." 
+                                class="search-input w-full resize-none"
+                                rows="4"
+                                maxlength="1000"></textarea>
+                    </div>
+                    
+                    <div class="flex space-x-3 pt-4">
+                        <button type="button" id="cancelRating" class="btn-secondary flex-1">
+                            取消
+                        </button>
+                        <button type="submit" id="submitRating" class="btn-primary flex-1">
+                            <span id="ratingSubmitText">提交评分</span>
+                            <div id="ratingSpinner" class="hidden spinner inline-block ml-2"></div>
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <footer class="border-t border-gray-200 mt-16">
+        <div class="max-w-6xl mx-auto p-6">
+            <div class="text-center text-micro">
+                Copyright © 2025 <a href="https://github.com/PeterFujiyu" class="text-black hover:underline">Github@PeterFujiyu</a>, 
+                <span class="text-black">Claude Agent</span>
+            </div>
+        </div>
+    </footer>
+
+    <!-- Scripts -->
+    <script src="config.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,34 @@
+{
+  "name": "geektools-plugin-marketplace-frontend-new",
+  "version": "2.0.0",
+  "description": "New Minimalist Frontend for GeekTools Plugin Marketplace - Black/White/Gray Design",
+  "main": "app.js",
+  "scripts": {
+    "dev": "python3 ../proxy_server.py",
+    "serve": "python3 -m http.server 8080",
+    "build": "echo 'No build process needed for vanilla HTML/JS/CSS'",
+    "lint": "echo 'No linting configured yet'",
+    "format": "prettier --write *.html *.js *.css"
+  },
+  "devDependencies": {
+    "prettier": "^3.0.0"
+  },
+  "dependencies": {},
+  "keywords": [
+    "plugin",
+    "marketplace",
+    "geektools",
+    "frontend",
+    "vanilla-js",
+    "minimalist",
+    "black-white-gray",
+    "extreme-minimalism"
+  ],
+  "author": "GeekTools Team",
+  "license": "MIT",
+  "browserslist": [
+    "> 1%",
+    "last 2 versions"
+  ],
+  "readme": "Minimalist black-white-gray redesign of GeekTools Plugin Marketplace frontend with no learning cost for users"
+}
