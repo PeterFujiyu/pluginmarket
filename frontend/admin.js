@@ -35,7 +35,9 @@ class AdminPanel {
         // Tab switching
         document.querySelectorAll('.tab-btn').forEach(btn => {
             btn.addEventListener('click', (e) => {
-                const tabId = e.target.id.replace('Tab', '');
+                // Get the button element (in case user clicks on the icon inside)
+                const button = e.target.closest('.tab-btn');
+                const tabId = button.id.replace('Tab', '');
                 this.switchTab(tabId);
             });
         });
@@ -80,6 +82,29 @@ class AdminPanel {
         document.getElementById('editEmailForm').addEventListener('submit', (e) => {
             e.preventDefault();
             this.saveUserEmail();
+        });
+
+        // Wallet management modals
+        document.getElementById('closeBindWalletModal').addEventListener('click', () => {
+            this.hideBindWalletModal();
+        });
+        document.getElementById('cancelBindWallet').addEventListener('click', () => {
+            this.hideBindWalletModal();
+        });
+        document.getElementById('bindWalletForm').addEventListener('submit', (e) => {
+            e.preventDefault();
+            this.bindWalletAddress();
+        });
+
+        document.getElementById('closeUpdateWalletModal').addEventListener('click', () => {
+            this.hideUpdateWalletModal();
+        });
+        document.getElementById('cancelUpdateWallet').addEventListener('click', () => {
+            this.hideUpdateWalletModal();
+        });
+        document.getElementById('updateWalletForm').addEventListener('submit', (e) => {
+            e.preventDefault();
+            this.updateWalletAddress();
         });
 
         // User filter
@@ -247,6 +272,27 @@ class AdminPanel {
                 <td class="py-3 px-4">${user.username}</td>
                 <td class="py-3 px-4">${user.email}</td>
                 <td class="py-3 px-4">
+                    <div class="flex items-center space-x-2">
+                        <span class="text-sm ${user.ethereum_address ? 'text-gray-900' : 'text-gray-400'}" title="${user.ethereum_address || '未绑定'}">
+                            ${user.ethereum_address ? `****${user.ethereum_address.slice(-6)}` : '未绑定'}
+                        </span>
+                        ${user.ethereum_address ? 
+                            `<button onclick="adminPanel.showUpdateWalletModal(${user.id}, '${this.escapeHtml(user.username)}', '${user.ethereum_address}')" 
+                                     class="text-blue-500 hover:text-blue-700" title="修改钱包地址">
+                                <i class="fas fa-edit text-xs"></i>
+                             </button>
+                             <button onclick="adminPanel.removeWalletAddress(${user.id}, '${this.escapeHtml(user.username)}')" 
+                                     class="text-red-500 hover:text-red-700" title="移除钱包地址">
+                                <i class="fas fa-times text-xs"></i>
+                             </button>` :
+                            `<button onclick="adminPanel.showBindWalletModal(${user.id}, '${this.escapeHtml(user.username)}')" 
+                                     class="text-green-500 hover:text-green-700" title="绑定钱包地址">
+                                <i class="fas fa-plus text-xs"></i>
+                             </button>`
+                        }
+                    </div>
+                </td>
+                <td class="py-3 px-4">
                     <span class="px-2 py-1 text-xs rounded-full ${
                         user.role === 'admin' ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-700'
                     }">
@@ -265,16 +311,16 @@ class AdminPanel {
                 </td>
                 <td class="py-3 px-4">
                     <div class="flex space-x-2">
-                        <button onclick="adminPanel.showEditEmailModal(${user.id}, '${user.username}', '${user.email}')" 
+                        <button onclick="adminPanel.showEditEmailModal(${user.id}, '${this.escapeHtml(user.username)}', '${this.escapeHtml(user.email)}')" 
                                 class="text-blue-600 hover:text-blue-800 text-sm">
                             <i class="fas fa-edit mr-1"></i>编辑邮箱
                         </button>
                         ${user.is_active ? 
-                            `<button onclick="adminPanel.banUser(${user.id}, '${user.username}')" 
+                            `<button onclick="adminPanel.banUser(${user.id}, '${this.escapeHtml(user.username)}')" 
                                      class="text-red-600 hover:text-red-800 text-sm">
                                 <i class="fas fa-ban mr-1"></i>封禁
                              </button>` :
-                            `<button onclick="adminPanel.unbanUser(${user.id}, '${user.username}')" 
+                            `<button onclick="adminPanel.unbanUser(${user.id}, '${this.escapeHtml(user.username)}')" 
                                      class="text-green-600 hover:text-green-800 text-sm">
                                 <i class="fas fa-check mr-1"></i>解封
                              </button>`
@@ -927,6 +973,169 @@ class AdminPanel {
         } catch (error) {
             console.error(`Error ${action} plugin:`, error);
             this.showNotification(`${action}插件失败: ` + error.message, 'error');
+        }
+    }
+
+    // Wallet address management methods
+    showBindWalletModal(userId, username) {
+        document.getElementById('bindUserId').value = userId;
+        document.getElementById('bindUserName').value = username;
+        document.getElementById('bindWalletAddress').value = '';
+        document.getElementById('bindReason').value = '';
+        document.getElementById('bindWalletModal').classList.remove('hidden');
+    }
+
+    showUpdateWalletModal(userId, username, currentAddress) {
+        document.getElementById('updateUserId').value = userId;
+        document.getElementById('updateUserName').value = username;
+        document.getElementById('updateCurrentWallet').value = currentAddress;
+        document.getElementById('updateNewWallet').value = '';
+        document.getElementById('updateReason').value = '';
+        document.getElementById('updateWalletModal').classList.remove('hidden');
+    }
+
+    hideBindWalletModal() {
+        document.getElementById('bindWalletModal').classList.add('hidden');
+    }
+
+    hideUpdateWalletModal() {
+        document.getElementById('updateWalletModal').classList.add('hidden');
+    }
+
+    async bindWalletAddress() {
+        const userId = parseInt(document.getElementById('bindUserId').value);
+        const walletAddress = document.getElementById('bindWalletAddress').value.trim();
+        const reason = document.getElementById('bindReason').value.trim();
+
+        if (!walletAddress) {
+            this.showError('请输入钱包地址');
+            return;
+        }
+
+        if (!walletAddress.match(/^0x[a-fA-F0-9]{40}$/)) {
+            this.showError('请输入有效的以太坊地址');
+            return;
+        }
+
+        const saveBtn = document.getElementById('saveBindWalletBtn');
+        const saveText = document.getElementById('saveBindWalletText');
+        const saveSpinner = document.getElementById('saveBindWalletSpinner');
+
+        try {
+            saveBtn.disabled = true;
+            saveText.textContent = '绑定中...';
+            saveSpinner.classList.remove('hidden');
+
+            const response = await this.makeAuthenticatedRequest(`${this.baseURL}/admin/users/bind-wallet`, {
+                method: 'POST',
+                body: JSON.stringify({
+                    user_id: userId,
+                    ethereum_address: walletAddress,
+                    reason: reason || null
+                })
+            });
+
+            if (!response) return;
+
+            const data = await response.json();
+            if (data.success) {
+                this.showSuccess('钱包地址绑定成功');
+                this.hideBindWalletModal();
+                this.loadUsers();
+            } else {
+                this.showError(`绑定失败: ${data.error || data.message}`);
+            }
+        } catch (error) {
+            console.error('Failed to bind wallet address:', error);
+            this.showError(`绑定失败: ${error.message}`);
+        } finally {
+            saveBtn.disabled = false;
+            saveText.textContent = '绑定地址';
+            saveSpinner.classList.add('hidden');
+        }
+    }
+
+    async updateWalletAddress() {
+        const userId = parseInt(document.getElementById('updateUserId').value);
+        const walletAddress = document.getElementById('updateNewWallet').value.trim();
+        const reason = document.getElementById('updateReason').value.trim();
+
+        if (!walletAddress) {
+            this.showError('请输入新的钱包地址');
+            return;
+        }
+
+        if (!walletAddress.match(/^0x[a-fA-F0-9]{40}$/)) {
+            this.showError('请输入有效的以太坊地址');
+            return;
+        }
+
+        const saveBtn = document.getElementById('saveUpdateWalletBtn');
+        const saveText = document.getElementById('saveUpdateWalletText');
+        const saveSpinner = document.getElementById('saveUpdateWalletSpinner');
+
+        try {
+            saveBtn.disabled = true;
+            saveText.textContent = '更新中...';
+            saveSpinner.classList.remove('hidden');
+
+            const response = await this.makeAuthenticatedRequest(`${this.baseURL}/admin/users/update-wallet`, {
+                method: 'POST',
+                body: JSON.stringify({
+                    user_id: userId,
+                    ethereum_address: walletAddress,
+                    reason: reason || null
+                })
+            });
+
+            if (!response) return;
+
+            const data = await response.json();
+            if (data.success) {
+                this.showSuccess('钱包地址更新成功');
+                this.hideUpdateWalletModal();
+                this.loadUsers();
+            } else {
+                this.showError(`更新失败: ${data.error || data.message}`);
+            }
+        } catch (error) {
+            console.error('Failed to update wallet address:', error);
+            this.showError(`更新失败: ${error.message}`);
+        } finally {
+            saveBtn.disabled = false;
+            saveText.textContent = '保存修改';
+            saveSpinner.classList.add('hidden');
+        }
+    }
+
+    async removeWalletAddress(userId, username) {
+        const reason = prompt(`确定要移除用户 "${username}" 的钱包地址吗？\n\n请输入移除原因（可选）:`);
+        
+        if (reason === null) {
+            return; // User cancelled
+        }
+
+        try {
+            const response = await this.makeAuthenticatedRequest(`${this.baseURL}/admin/users/remove-wallet`, {
+                method: 'POST',
+                body: JSON.stringify({
+                    user_id: userId,
+                    reason: reason.trim() || null
+                })
+            });
+
+            if (!response) return;
+
+            const data = await response.json();
+            if (data.success) {
+                this.showSuccess('钱包地址移除成功');
+                this.loadUsers();
+            } else {
+                this.showError(`移除失败: ${data.error || data.message}`);
+            }
+        } catch (error) {
+            console.error('Failed to remove wallet address:', error);
+            this.showError(`移除失败: ${error.message}`);
         }
     }
 

@@ -11,6 +11,7 @@ pub struct User {
     pub password_hash: String,
     pub display_name: Option<String>,
     pub role: Option<String>,
+    pub ethereum_address: Option<String>,
     pub is_active: bool,
     pub is_verified: bool,
     pub created_at: DateTime<Utc>,

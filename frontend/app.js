@@ -14,14 +14,20 @@ class PluginMarketplace {
         this.authToken = localStorage.getItem('auth_token');
         this.currentUser = JSON.parse(localStorage.getItem('current_user') || 'null');
         
+        // Web3/MetaMask related properties
+        this.web3Enabled = false;
+        this.metamaskAvailable = false;
+        this.web3Provider = null;
+        
         this.init();
     }
 
-    init() {
+    async init() {
         this.bindEvents();
         this.initAuth();
         this.initAnimations();
         this.initDarkMode();
+        await this.initWeb3();
         this.loadStats();
         this.loadPlugins();
         this.setupFileUpload();
@@ -317,7 +323,21 @@ class PluginMarketplace {
         if (this.authToken && this.currentUser) {
             loggedOut.classList.add('hidden');
             loggedIn.classList.remove('hidden');
-            userEmail.textContent = this.currentUser.email;
+            
+            // Display email or ethereum address
+            if (this.currentUser.email && this.currentUser.email.trim() !== '') {
+                // Regular email user
+                userEmail.textContent = this.currentUser.email;
+            } else {
+                // Web3/MetaMask user - show formatted ethereum address
+                const ethAddress = this.getEthereumAddress();
+                if (ethAddress) {
+                    userEmail.textContent = `****${ethAddress.slice(-6)}`;
+                } else {
+                    // Fallback to display name or username
+                    userEmail.textContent = this.currentUser.display_name || this.currentUser.username || 'Web3 User';
+                }
+            }
             
             // Show admin-specific UI elements
             if (this.currentUser.role === 'admin') {
@@ -365,6 +385,11 @@ class PluginMarketplace {
         }
 
         const sendCodeBtn = document.getElementById('sendCodeBtn');
+        // Prevent double submission
+        if (sendCodeBtn.disabled) {
+            return;
+        }
+        
         const originalText = sendCodeBtn.textContent;
         sendCodeBtn.disabled = true;
         sendCodeBtn.textContent = '发送中...';
@@ -378,9 +403,16 @@ class PluginMarketplace {
                 body: JSON.stringify({ email })
             });
 
+            // Check if response is OK first
+            if (!response.ok) {
+                const errorText = await response.text();
+                console.error('HTTP Error:', response.status, errorText);
+                throw new Error(`HTTP ${response.status}: ${errorText}`);
+            }
+
             const data = await response.json();
 
-            if (response.ok && data.success) {
+            if (data.success) {
                 // Show verification code step
                 document.getElementById('sendCodeStep').classList.add('hidden');
                 document.getElementById('verifyCodeStep').classList.remove('hidden');
@@ -424,11 +456,19 @@ class PluginMarketplace {
         const verifyText = document.getElementById('verifyText');
         const loginSpinner = document.getElementById('loginSpinner');
 
+        // Prevent double submission
+        if (verifyBtn.disabled) {
+            return;
+        }
+        
         verifyBtn.disabled = true;
         verifyText.textContent = '验证中...';
         loginSpinner.classList.remove('hidden');
 
         try {
+            // Debug logging
+            console.log('Verify request:', { email, code });
+            
             const response = await fetch(`${this.baseURL}/auth/verify-code`, {
                 method: 'POST',
                 headers: {
@@ -437,9 +477,19 @@ class PluginMarketplace {
                 body: JSON.stringify({ email, code })
             });
 
-            const data = await response.json();
+            console.log('Response status:', response.status);
+            
+            // Check if response is OK first
+            if (!response.ok) {
+                const errorText = await response.text();
+                console.error('HTTP Error:', response.status, errorText);
+                throw new Error(`HTTP ${response.status}: ${errorText}`);
+            }
 
-            if (response.ok && data.success) {
+            const data = await response.json();
+            console.log('Response data:', data);
+
+            if (data.success) {
                 // Store auth data
                 this.authToken = data.data.token;
                 this.currentUser = data.data.user;
@@ -455,7 +505,14 @@ class PluginMarketplace {
             }
         } catch (error) {
             console.error('Verify code failed:', error);
-            this.showError(`验证失败: ${error.message}`);
+            // Try to get more specific error information
+            let errorMessage = error.message;
+            if (error.message.includes('HTTP 400')) {
+                errorMessage = '验证码错误或已过期，请重新获取验证码';
+            } else if (error.message.includes('HTTP 500')) {
+                errorMessage = '服务器错误，请稍后重试';
+            }
+            this.showError(`验证失败: ${errorMessage}`);
         } finally {
             verifyBtn.disabled = false;
             verifyText.textContent = '登录';
@@ -1520,6 +1577,193 @@ class PluginMarketplace {
         const sizes = ['B', 'KB', 'MB', 'GB'];
         const i = Math.floor(Math.log(bytes) / Math.log(k));
         return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    }
+
+    // Web3/MetaMask functionality
+    async initWeb3() {
+        try {
+            // Check Web3 configuration from backend
+            const response = await fetch(`${this.baseURL}/auth/web3/config`);
+            const data = await response.json();
+            
+            if (response.ok && data.success) {
+                this.web3Enabled = data.data.web3_enabled;
+                
+                if (this.web3Enabled) {
+                    // Check if MetaMask is available
+                    this.metamaskAvailable = typeof window.ethereum !== 'undefined';
+                    
+                    if (this.metamaskAvailable) {
+                        // Set up Web3 provider
+                        this.web3Provider = new ethers.providers.Web3Provider(window.ethereum);
+                        
+                        // Listen for account changes
+                        window.ethereum.on('accountsChanged', (accounts) => {
+                            if (accounts.length === 0) {
+                                console.log('MetaMask账户已断开连接');
+                            }
+                        });
+                        
+                        // Listen for network changes
+                        window.ethereum.on('chainChanged', (chainId) => {
+                            console.log('MetaMask网络已切换:', chainId);
+                        });
+                    }
+                    
+                    console.log(`Web3 enabled: ${this.web3Enabled}, MetaMask available: ${this.metamaskAvailable}`);
+                }
+            }
+        } catch (error) {
+            console.error('Failed to initialize Web3:', error);
+        }
+        
+        // Update UI based on Web3 availability
+        this.updateWeb3UI();
+    }
+
+    updateWeb3UI() {
+        const metamaskSection = document.getElementById('metamaskLoginSection');
+        const metamaskBtn = document.getElementById('metamaskLoginBtn');
+        
+        if (this.web3Enabled && this.metamaskAvailable) {
+            metamaskSection.classList.remove('hidden');
+            metamaskBtn.addEventListener('click', () => this.connectMetaMask());
+        } else {
+            metamaskSection.classList.add('hidden');
+        }
+    }
+
+    async connectMetaMask() {
+        if (!this.metamaskAvailable) {
+            this.showError('请先安装 MetaMask 钱包插件');
+            return;
+        }
+
+        const btn = document.getElementById('metamaskLoginBtn');
+        const btnText = document.getElementById('metamaskBtnText');
+        const spinner = document.getElementById('metamaskSpinner');
+
+        try {
+            // Update button state
+            btn.disabled = true;
+            btn.classList.add('metamask-connecting');
+            btnText.textContent = '连接 MetaMask...';
+            spinner.classList.remove('hidden');
+
+            // Request account access
+            const accounts = await window.ethereum.request({
+                method: 'eth_requestAccounts'
+            });
+
+            if (accounts.length === 0) {
+                throw new Error('未选择任何账户');
+            }
+
+            const address = accounts[0];
+            console.log('Connected to MetaMask address:', address);
+
+            // Update button state
+            btnText.textContent = '正在生成签名挑战...';
+
+            // Get challenge from backend
+            const challengeResponse = await fetch(`${this.baseURL}/auth/metamask/challenge`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ address })
+            });
+
+            const challengeData = await challengeResponse.json();
+            
+            if (!challengeResponse.ok || !challengeData.success) {
+                throw new Error(challengeData.error || '获取签名挑战失败');
+            }
+
+            const { message, nonce } = challengeData.data;
+            
+            // Update button state
+            btnText.textContent = '请在 MetaMask 中签名...';
+
+            // Request signature
+            const signer = this.web3Provider.getSigner();
+            const signature = await signer.signMessage(message);
+
+            // Update button state
+            btnText.textContent = '正在验证签名...';
+
+            // Verify signature with backend
+            const verifyResponse = await fetch(`${this.baseURL}/auth/metamask/verify`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    address,
+                    signature,
+                    message,
+                    nonce
+                })
+            });
+
+            const verifyData = await verifyResponse.json();
+
+            if (!verifyResponse.ok || !verifyData.success) {
+                throw new Error(verifyData.error || '签名验证失败');
+            }
+
+            // Store auth data
+            this.authToken = verifyData.data.token;
+            this.currentUser = verifyData.data.user;
+            localStorage.setItem('auth_token', this.authToken);
+            localStorage.setItem('current_user', JSON.stringify(this.currentUser));
+
+            // Update UI
+            this.updateAuthUI();
+            this.hideLoginModal();
+            
+            // Update button state to success
+            btn.classList.remove('metamask-connecting');
+            btn.classList.add('metamask-connected');
+            btnText.textContent = '登录成功';
+            
+            this.showSuccess('MetaMask 登录成功！');
+
+        } catch (error) {
+            console.error('MetaMask connection failed:', error);
+            
+            let errorMessage = error.message;
+            if (error.code === 4001) {
+                errorMessage = '用户拒绝了连接请求';
+            } else if (error.code === -32602) {
+                errorMessage = 'MetaMask 请求参数无效';
+            } else if (error.message.includes('User denied message signature')) {
+                errorMessage = '用户拒绝了签名请求';
+            }
+            
+            this.showError(`MetaMask 连接失败: ${errorMessage}`);
+            
+        } finally {
+            // Reset button state
+            setTimeout(() => {
+                btn.disabled = false;
+                btn.classList.remove('metamask-connecting', 'metamask-connected');
+                btnText.textContent = '使用 MetaMask 继续';
+                spinner.classList.add('hidden');
+            }, 2000);
+        }
+    }
+
+    checkMetaMaskAvailability() {
+        return typeof window.ethereum !== 'undefined' && window.ethereum.isMetaMask;
+    }
+
+    getEthereumAddress() {
+        // Try to get ethereum address from current user data
+        if (this.currentUser && this.currentUser.ethereum_address) {
+            return this.currentUser.ethereum_address;
+        }
+        return null;
     }
 }
 

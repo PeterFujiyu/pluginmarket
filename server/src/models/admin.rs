@@ -110,6 +110,7 @@ pub struct UserManagementInfo {
     pub id: i32,
     pub username: String,
     pub email: String,
+    pub ethereum_address: Option<String>,
     pub display_name: Option<String>,
     pub role: String,
     pub is_active: bool,
@@ -151,6 +152,28 @@ pub struct UnbanUserRequest {
 pub struct TogglePluginStatusRequest {
     pub plugin_id: String,
     pub is_active: bool,
+    pub reason: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Validate)]
+pub struct BindWalletAddressRequest {
+    pub user_id: i32,
+    #[validate(length(min = 42, max = 42))]
+    pub ethereum_address: String,
+    pub reason: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Validate)]
+pub struct UpdateWalletAddressRequest {
+    pub user_id: i32,
+    #[validate(length(min = 42, max = 42))]
+    pub ethereum_address: String,
+    pub reason: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Validate)]
+pub struct RemoveWalletAddressRequest {
+    pub user_id: i32,
     pub reason: Option<String>,
 }
 

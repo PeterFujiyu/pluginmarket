@@ -27,6 +27,7 @@ pub struct UserInfo {
     pub email: String,
     pub display_name: Option<String>,
     pub role: Option<String>,
+    pub ethereum_address: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -40,4 +41,34 @@ pub struct VerificationCode {
 pub struct SendCodeResponse {
     pub message: String,
     pub code: Option<String>, // Only included when SMTP is not configured
+}
+
+// Web3/MetaMask related models
+#[derive(Debug, Serialize, Deserialize, Validate)]
+pub struct MetaMaskChallengeRequest {
+    #[validate(length(min = 42, max = 42))]
+    pub address: String, // Ethereum address
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct MetaMaskChallengeResponse {
+    pub message: String,
+    pub nonce: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Validate)]
+pub struct MetaMaskVerifyRequest {
+    #[validate(length(min = 42, max = 42))]
+    pub address: String,
+    pub signature: String,
+    pub message: String,
+    pub nonce: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct Web3Challenge {
+    pub address: String,
+    pub message: String,
+    pub nonce: String,
+    pub expires_at: chrono::DateTime<chrono::Utc>,
 }

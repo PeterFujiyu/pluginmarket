@@ -8,7 +8,7 @@ use validator::Validate;
 use crate::{
     handlers::{success_response, success_response_with_message, AppError, Result},
     middleware::auth::get_user_from_token,
-    models::{AdminPaginationQuery, ExecuteSqlRequest, UpdateUserEmailRequest, DeletePluginRequest, BanUserRequest, UnbanUserRequest, TogglePluginStatusRequest},
+    models::{AdminPaginationQuery, ExecuteSqlRequest, UpdateUserEmailRequest, DeletePluginRequest, BanUserRequest, UnbanUserRequest, TogglePluginStatusRequest, BindWalletAddressRequest, UpdateWalletAddressRequest, RemoveWalletAddressRequest},
     services::AppState,
 };
 
@@ -305,5 +305,77 @@ pub async fn toggle_plugin_status(
     Ok(success_response_with_message(
         serde_json::json!({}),
         &format!("插件{}成功", action),
+    ))
+}
+
+// Bind wallet address to user
+pub async fn bind_wallet_address(
+    headers: HeaderMap,
+    State(state): State<AppState>,
+    Json(payload): Json<BindWalletAddressRequest>,
+) -> Result<Json<serde_json::Value>> {
+    let (admin_id, _admin_email) = require_admin(&headers, &state).await?;
+
+    payload.validate()?;
+
+    let ip_address = get_client_ip(&headers);
+
+    state
+        .admin_service
+        .bind_wallet_address(admin_id, payload, ip_address)
+        .await
+        .map_err(|e| AppError::Internal(format!("Failed to bind wallet address: {}", e)))?;
+
+    Ok(success_response_with_message(
+        serde_json::json!({}),
+        "钱包地址绑定成功",
+    ))
+}
+
+// Update wallet address for user
+pub async fn update_wallet_address(
+    headers: HeaderMap,
+    State(state): State<AppState>,
+    Json(payload): Json<UpdateWalletAddressRequest>,
+) -> Result<Json<serde_json::Value>> {
+    let (admin_id, _admin_email) = require_admin(&headers, &state).await?;
+
+    payload.validate()?;
+
+    let ip_address = get_client_ip(&headers);
+
+    state
+        .admin_service
+        .update_wallet_address(admin_id, payload, ip_address)
+        .await
+        .map_err(|e| AppError::Internal(format!("Failed to update wallet address: {}", e)))?;
+
+    Ok(success_response_with_message(
+        serde_json::json!({}),
+        "钱包地址更新成功",
+    ))
+}
+
+// Remove wallet address from user
+pub async fn remove_wallet_address(
+    headers: HeaderMap,
+    State(state): State<AppState>,
+    Json(payload): Json<RemoveWalletAddressRequest>,
+) -> Result<Json<serde_json::Value>> {
+    let (admin_id, _admin_email) = require_admin(&headers, &state).await?;
+
+    payload.validate()?;
+
+    let ip_address = get_client_ip(&headers);
+
+    state
+        .admin_service
+        .remove_wallet_address(admin_id, payload, ip_address)
+        .await
+        .map_err(|e| AppError::Internal(format!("Failed to remove wallet address: {}", e)))?;
+
+    Ok(success_response_with_message(
+        serde_json::json!({}),
+        "钱包地址移除成功",
     ))
 }

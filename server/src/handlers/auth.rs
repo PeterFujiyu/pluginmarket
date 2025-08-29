@@ -3,7 +3,7 @@ use validator::Validate;
 
 use crate::{
     handlers::{success_response, success_response_with_message, AppError, Result},
-    models::{LoginRequest, RegisterRequest, SendVerificationCodeRequest, VerifyCodeRequest, SendCodeResponse},
+    models::{LoginRequest, RegisterRequest, SendVerificationCodeRequest, VerifyCodeRequest, SendCodeResponse, MetaMaskChallengeRequest, MetaMaskChallengeResponse, MetaMaskVerifyRequest},
     services::AppState,
 };
 
@@ -123,4 +123,86 @@ pub async fn verify_code_and_login(
         )),
         Err(e) => Err(AppError::BadRequest(e.to_string())),
     }
+}
+
+// MetaMask/Web3 authentication endpoints
+pub async fn metamask_challenge(
+    State(state): State<AppState>,
+    Json(payload): Json<MetaMaskChallengeRequest>,
+) -> Result<Json<serde_json::Value>> {
+    payload.validate()?;
+
+    if !state.config.web3.enabled {
+        return Err(AppError::BadRequest(
+            "Web3 authentication is not enabled".to_string(),
+        ));
+    }
+
+    match state.auth_service.generate_web3_challenge(&payload.address).await {
+        Ok((message, nonce)) => {
+            let response = MetaMaskChallengeResponse { message, nonce };
+            Ok(success_response_with_message(
+                response,
+                "Challenge generated successfully",
+            ))
+        }
+        Err(e) => Err(AppError::BadRequest(e.to_string())),
+    }
+}
+
+pub async fn metamask_verify(
+    headers: axum::http::HeaderMap,
+    State(state): State<AppState>,
+    Json(payload): Json<MetaMaskVerifyRequest>,
+) -> Result<Json<serde_json::Value>> {
+    payload.validate()?;
+
+    if !state.config.web3.enabled {
+        return Err(AppError::BadRequest(
+            "Web3 authentication is not enabled".to_string(),
+        ));
+    }
+
+    // Extract IP address and user agent
+    let ip_address = headers
+        .get("x-forwarded-for")
+        .and_then(|h| h.to_str().ok())
+        .and_then(|s| s.split(',').next())
+        .and_then(|ip| ip.trim().parse().ok())
+        .or_else(|| {
+            headers
+                .get("x-real-ip")
+                .and_then(|h| h.to_str().ok())
+                .and_then(|ip| ip.parse().ok())
+        });
+
+    let user_agent = headers
+        .get("user-agent")
+        .and_then(|h| h.to_str().ok());
+
+    match state.auth_service.verify_web3_signature(
+        &payload.address,
+        &payload.signature,
+        &payload.message,
+        &payload.nonce,
+        ip_address,
+        user_agent
+    ).await {
+        Ok(auth_response) => Ok(success_response_with_message(
+            auth_response,
+            "Web3 authentication successful",
+        )),
+        Err(e) => Err(AppError::BadRequest(e.to_string())),
+    }
+}
+
+pub async fn web3_config(
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>> {
+    let config_info = serde_json::json!({
+        "web3_enabled": state.config.web3.enabled,
+        "infura_configured": !state.config.web3.infura_api_key.is_empty(),
+    });
+    
+    Ok(success_response(config_info))
 }

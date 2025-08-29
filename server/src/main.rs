@@ -96,12 +96,16 @@ async fn main() -> anyhow::Result<()> {
 
 fn create_app(state: AppState) -> Router {
     // CORS configuration - Allow specific origins with credentials
-    let cors = CorsLayer::new()
-        .allow_origin("http://localhost:8080".parse::<HeaderValue>().unwrap())
-        .allow_origin("http://127.0.0.1:8080".parse::<HeaderValue>().unwrap())
-        .allow_origin("http://localhost:3000".parse::<HeaderValue>().unwrap())
-        .allow_origin("http://127.0.0.1:3000".parse::<HeaderValue>().unwrap())
-        .allow_origin("null".parse::<HeaderValue>().unwrap()) // For file:// protocol
+    let mut cors = CorsLayer::new();
+    
+    // Add origins from config
+    for origin in &state.config.cors.allowed_origins {
+        cors = cors.allow_origin(origin.parse::<HeaderValue>().unwrap());
+    }
+    
+    // Add null origin for file:// protocol
+    let cors = cors
+        .allow_origin("null".parse::<HeaderValue>().unwrap())
         .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE, Method::OPTIONS])
         .allow_headers([AUTHORIZATION, ACCEPT, CONTENT_TYPE])
         .allow_credentials(true);
@@ -114,6 +118,10 @@ fn create_app(state: AppState) -> Router {
         .route("/auth/refresh", post(auth::refresh_token))
         .route("/auth/send-code", post(auth::send_verification_code))
         .route("/auth/verify-code", post(auth::verify_code_and_login))
+        // Web3/MetaMask authentication routes
+        .route("/auth/metamask/challenge", post(auth::metamask_challenge))
+        .route("/auth/metamask/verify", post(auth::metamask_verify))
+        .route("/auth/web3/config", get(auth::web3_config))
         
         // Plugin routes
         .route("/plugins", get(plugins::list_plugins))
@@ -139,6 +147,9 @@ fn create_app(state: AppState) -> Router {
         .route("/admin/users/update-email", post(admin::update_user_email))
         .route("/admin/users/ban", post(admin::ban_user))
         .route("/admin/users/unban", post(admin::unban_user))
+        .route("/admin/users/bind-wallet", post(admin::bind_wallet_address))
+        .route("/admin/users/update-wallet", post(admin::update_wallet_address))
+        .route("/admin/users/remove-wallet", post(admin::remove_wallet_address))
         .route("/admin/plugins", get(admin::get_plugins_for_management))
         .route("/admin/plugins/delete", post(admin::delete_plugin))
         .route("/admin/plugins/toggle-status", post(admin::toggle_plugin_status))
@@ -207,6 +218,22 @@ fn log_configuration(config: &Config, port: u16, database_url: &str) {
         }
     } else {
         info!("SMTP is disabled - verification codes will be displayed in logs");
+    }
+    
+    info!("=== Web3 Configuration ===");
+    info!("Web3 enabled: {}", config.web3.enabled);
+    if config.web3.enabled {
+        info!("Infura API URL: {}", config.web3.infura_api_url);
+        info!("Infura API key configured: {}", !config.web3.infura_api_key.is_empty());
+        info!("Web3 challenge expires in: {}s", config.web3.challenge_expires_in);
+        
+        if config.web3.infura_api_key.is_empty() && config.web3.infura_api_url.is_empty() {
+            tracing::warn!("Web3 is enabled but Infura configuration is missing");
+        } else {
+            info!("Web3 authentication ready for MetaMask login");
+        }
+    } else {
+        info!("Web3 authentication is disabled");
     }
     
     info!("=== CORS Configuration ===");

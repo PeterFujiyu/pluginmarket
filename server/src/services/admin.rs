@@ -10,7 +10,8 @@ use crate::{
         AdminDashboardStats, AdminSqlLog, ExecuteSqlRequest, SqlExecutionResult,
         UpdateUserEmailRequest, UserLoginActivity, UserManagementInfo,
         AdminPaginationQuery, DeletePluginRequest, BanUserRequest, UnbanUserRequest,
-        TogglePluginStatusRequest,
+        TogglePluginStatusRequest, BindWalletAddressRequest, UpdateWalletAddressRequest,
+        RemoveWalletAddressRequest,
     },
     utils::config::Config,
 };
@@ -136,6 +137,7 @@ impl AdminService {
                 u.id,
                 u.username,
                 u.email,
+                u.ethereum_address,
                 u.display_name,
                 COALESCE(u.role, 'user') as role,
                 u.is_active,
@@ -665,6 +667,196 @@ impl AdminService {
         .bind(admin_user_id)
         .bind(&format!("{} PLUGIN: {} - REASON: {}", action, request.plugin_id, request.reason.unwrap_or("No reason provided".to_string())))
         .bind(rows_affected as i32)
+        .bind(ip_address.map(|ip| IpNetwork::from(ip)))
+        .execute(&mut *tx)
+        .await?;
+
+        tx.commit().await?;
+        Ok(())
+    }
+
+    // Bind wallet address to user
+    pub async fn bind_wallet_address(
+        &self,
+        admin_user_id: i32,
+        request: BindWalletAddressRequest,
+        ip_address: Option<IpAddr>,
+    ) -> anyhow::Result<()> {
+        let mut tx = self.db_pool.begin().await?;
+
+        // Check if the wallet address is already bound to another user
+        let existing_user: Option<i32> = sqlx::query_scalar(
+            "SELECT id FROM users WHERE ethereum_address = $1"
+        )
+        .bind(&request.ethereum_address)
+        .fetch_optional(&mut *tx)
+        .await?;
+
+        if let Some(existing_id) = existing_user {
+            if existing_id != request.user_id {
+                return Err(anyhow::anyhow!("钱包地址已被其他用户绑定"));
+            }
+        }
+
+        // Check if user exists
+        let user_exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM users WHERE id = $1)")
+            .bind(request.user_id)
+            .fetch_one(&mut *tx)
+            .await?;
+
+        if !user_exists {
+            return Err(anyhow::anyhow!("用户不存在"));
+        }
+
+        // Get current ethereum_address
+        let current_address: Option<String> = sqlx::query_scalar("SELECT ethereum_address FROM users WHERE id = $1")
+            .bind(request.user_id)
+            .fetch_one(&mut *tx)
+            .await?;
+
+        // Update the ethereum_address
+        let rows_affected = sqlx::query(
+            "UPDATE users SET ethereum_address = $1, updated_at = NOW() WHERE id = $2"
+        )
+        .bind(&request.ethereum_address)
+        .bind(request.user_id)
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+
+        if rows_affected == 0 {
+            return Err(anyhow::anyhow!("更新失败"));
+        }
+
+        // Record the change
+        sqlx::query(
+            r#"
+            INSERT INTO user_profile_changes 
+            (user_id, changed_by_user_id, field_name, old_value, new_value, change_reason, ip_address)
+            VALUES ($1, $2, 'ethereum_address', $3, $4, $5, $6)
+            "#,
+        )
+        .bind(request.user_id)
+        .bind(admin_user_id)
+        .bind(&current_address)
+        .bind(&request.ethereum_address)
+        .bind(&request.reason)
+        .bind(ip_address.map(|ip| IpNetwork::from(ip)))
+        .execute(&mut *tx)
+        .await?;
+
+        tx.commit().await?;
+        Ok(())
+    }
+
+    // Update wallet address for user
+    pub async fn update_wallet_address(
+        &self,
+        admin_user_id: i32,
+        request: UpdateWalletAddressRequest,
+        ip_address: Option<IpAddr>,
+    ) -> anyhow::Result<()> {
+        let mut tx = self.db_pool.begin().await?;
+
+        // Check if the new wallet address is already bound to another user
+        let existing_user: Option<i32> = sqlx::query_scalar(
+            "SELECT id FROM users WHERE ethereum_address = $1"
+        )
+        .bind(&request.ethereum_address)
+        .fetch_optional(&mut *tx)
+        .await?;
+
+        if let Some(existing_id) = existing_user {
+            if existing_id != request.user_id {
+                return Err(anyhow::anyhow!("钱包地址已被其他用户绑定"));
+            }
+        }
+
+        // Get current ethereum_address
+        let current_address: Option<String> = sqlx::query_scalar("SELECT ethereum_address FROM users WHERE id = $1")
+            .bind(request.user_id)
+            .fetch_one(&mut *tx)
+            .await?;
+
+        // Update the ethereum_address
+        let rows_affected = sqlx::query(
+            "UPDATE users SET ethereum_address = $1, updated_at = NOW() WHERE id = $2"
+        )
+        .bind(&request.ethereum_address)
+        .bind(request.user_id)
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+
+        if rows_affected == 0 {
+            return Err(anyhow::anyhow!("用户不存在"));
+        }
+
+        // Record the change
+        sqlx::query(
+            r#"
+            INSERT INTO user_profile_changes 
+            (user_id, changed_by_user_id, field_name, old_value, new_value, change_reason, ip_address)
+            VALUES ($1, $2, 'ethereum_address', $3, $4, $5, $6)
+            "#,
+        )
+        .bind(request.user_id)
+        .bind(admin_user_id)
+        .bind(&current_address)
+        .bind(&request.ethereum_address)
+        .bind(&request.reason)
+        .bind(ip_address.map(|ip| IpNetwork::from(ip)))
+        .execute(&mut *tx)
+        .await?;
+
+        tx.commit().await?;
+        Ok(())
+    }
+
+    // Remove wallet address from user
+    pub async fn remove_wallet_address(
+        &self,
+        admin_user_id: i32,
+        request: RemoveWalletAddressRequest,
+        ip_address: Option<IpAddr>,
+    ) -> anyhow::Result<()> {
+        let mut tx = self.db_pool.begin().await?;
+
+        // Get current ethereum_address
+        let current_address: Option<String> = sqlx::query_scalar("SELECT ethereum_address FROM users WHERE id = $1")
+            .bind(request.user_id)
+            .fetch_one(&mut *tx)
+            .await?;
+
+        if current_address.is_none() {
+            return Err(anyhow::anyhow!("用户未绑定钱包地址"));
+        }
+
+        // Remove the ethereum_address (set to NULL)
+        let rows_affected = sqlx::query(
+            "UPDATE users SET ethereum_address = NULL, updated_at = NOW() WHERE id = $1"
+        )
+        .bind(request.user_id)
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+
+        if rows_affected == 0 {
+            return Err(anyhow::anyhow!("用户不存在"));
+        }
+
+        // Record the change
+        sqlx::query(
+            r#"
+            INSERT INTO user_profile_changes 
+            (user_id, changed_by_user_id, field_name, old_value, new_value, change_reason, ip_address)
+            VALUES ($1, $2, 'ethereum_address', $3, NULL, $4, $5)
+            "#,
+        )
+        .bind(request.user_id)
+        .bind(admin_user_id)
+        .bind(&current_address)
+        .bind(&request.reason)
         .bind(ip_address.map(|ip| IpNetwork::from(ip)))
         .execute(&mut *tx)
         .await?;

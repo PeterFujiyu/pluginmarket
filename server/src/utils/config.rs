@@ -10,6 +10,8 @@ pub struct Config {
     pub cors: CorsConfig,
     #[serde(default)]
     pub smtp: SmtpConfig,
+    #[serde(default)]
+    pub web3: Web3Config,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -68,6 +70,18 @@ pub struct SmtpConfig {
     pub use_tls: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Web3Config {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub infura_api_url: String,
+    #[serde(default)]
+    pub infura_api_key: String,
+    #[serde(default = "default_challenge_expires_in")]
+    pub challenge_expires_in: u64, // seconds
+}
+
 fn default_smtp_host() -> String {
     "smtp.gmail.com".to_string()
 }
@@ -88,6 +102,10 @@ fn default_true() -> bool {
     true
 }
 
+fn default_challenge_expires_in() -> u64 {
+    300 // 5 minutes
+}
+
 impl Default for SmtpConfig {
     fn default() -> Self {
         Self {
@@ -99,6 +117,17 @@ impl Default for SmtpConfig {
             from_address: default_smtp_from_address(),
             from_name: default_smtp_from_name(),
             use_tls: true,
+        }
+    }
+}
+
+impl Default for Web3Config {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            infura_api_url: String::new(),
+            infura_api_key: String::new(),
+            challenge_expires_in: default_challenge_expires_in(),
         }
     }
 }
@@ -177,6 +206,18 @@ impl Config {
                     .and_then(|s| s.parse().ok())
                     .unwrap_or(config.smtp.use_tls),
             },
+            web3: Web3Config {
+                enabled: env::var("WEB3_ENABLED")
+                    .ok()
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or(config.web3.enabled),
+                infura_api_url: env::var("INFURA_API_URL").unwrap_or(config.web3.infura_api_url),
+                infura_api_key: env::var("INFURA_API_KEY").unwrap_or(config.web3.infura_api_key),
+                challenge_expires_in: env::var("WEB3_CHALLENGE_EXPIRES_IN")
+                    .ok()
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or(config.web3.challenge_expires_in),
+            },
         })
     }
 }
@@ -231,6 +272,12 @@ impl Default for Config {
                 from_address: "noreply@geektools.dev".to_string(),
                 from_name: "GeekTools Plugin Marketplace".to_string(),
                 use_tls: true,
+            },
+            web3: Web3Config {
+                enabled: false,
+                infura_api_url: "".to_string(),
+                infura_api_key: "".to_string(),
+                challenge_expires_in: 300,
             },
         }
     }

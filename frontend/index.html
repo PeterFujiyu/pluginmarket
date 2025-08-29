@@ -27,6 +27,8 @@
         }
     </script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Web3 Dependencies -->
+    <script src="https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.umd.min.js"></script>
     <style>
         /* CSS变量系统 */
         :root {
@@ -445,6 +447,94 @@
         /* 次要按钮文字颜色 */
         [data-theme="dark"] .glass-button-secondary {
             color: var(--text-primary) !important;
+        }
+
+        /* MetaMask按钮样式 */
+        .metamask-button {
+            background: white;
+            border: 2px solid rgba(156, 163, 175, 0.3);
+            border-radius: 12px;
+            color: #000000;
+            box-shadow: 
+                0 4px 16px rgba(0, 0, 0, 0.08),
+                0 2px 8px rgba(0, 0, 0, 0.04),
+                inset 0 1px 0 rgba(255, 255, 255, 0.9);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .metamask-button:hover {
+            background: #f9fafb;
+            border-color: rgba(156, 163, 175, 0.5);
+            transform: translateY(-1px);
+            box-shadow: 
+                0 8px 24px rgba(0, 0, 0, 0.12),
+                0 4px 12px rgba(0, 0, 0, 0.06),
+                inset 0 1px 0 rgba(255, 255, 255, 0.95);
+        }
+
+        .metamask-button:disabled {
+            background: rgba(156, 163, 175, 0.1);
+            color: rgba(156, 163, 175, 0.6);
+            border-color: rgba(156, 163, 175, 0.2);
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+
+        .metamask-icon {
+            font-size: 20px;
+            margin-right: 8px;
+            flex-shrink: 0;
+        }
+
+        /* MetaMask连接状态样式 */
+        .metamask-connecting {
+            background: #eff6ff;
+            border-color: rgba(59, 130, 246, 0.3);
+            color: #000000;
+        }
+
+        .metamask-connecting:hover {
+            background: #dbeafe;
+            border-color: rgba(59, 130, 246, 0.4);
+        }
+
+        .metamask-connected {
+            background: #ecfdf5;
+            border-color: rgba(16, 185, 129, 0.3);
+            color: #000000;
+        }
+
+        .metamask-connected:hover {
+            background: #d1fae5;
+            border-color: rgba(16, 185, 129, 0.4);
+        }
+
+        /* 暗色主题下的MetaMask按钮 */
+        [data-theme="dark"] .metamask-button {
+            background: rgba(31, 41, 55, 0.8);
+            border-color: rgba(75, 85, 99, 0.5);
+            color: var(--text-primary);
+            backdrop-filter: blur(10px);
+        }
+
+        [data-theme="dark"] .metamask-button:hover {
+            background: rgba(31, 41, 55, 0.9);
+            border-color: rgba(75, 85, 99, 0.7);
+        }
+
+        [data-theme="dark"] .metamask-connecting {
+            background: rgba(30, 58, 138, 0.3);
+            border-color: rgba(59, 130, 246, 0.4);
+            color: #93c5fd;
+        }
+
+        [data-theme="dark"] .metamask-connected {
+            background: rgba(6, 95, 70, 0.3);
+            border-color: rgba(16, 185, 129, 0.4);
+            color: #6ee7b7;
         }
         
         /* 页面加载动画 */
@@ -1235,7 +1325,24 @@
                         </button>
                     </div>
                     
-                    <!-- Login Form -->
+                    <!-- MetaMask Login Option -->
+                    <div id="metamaskLoginSection" class="hidden mb-6">
+                        <button type="button" id="metamaskLoginBtn" class="metamask-button w-full px-4 py-3 rounded-xl font-medium transition-colors flex items-center justify-center">
+                            <span class="metamask-icon">🦊</span>
+                            <span id="metamaskBtnText">使用 MetaMask 继续</span>
+                            <div id="metamaskSpinner" class="hidden spinner inline-block ml-2"></div>
+                        </button>
+                        <div class="relative my-4">
+                            <div class="absolute inset-0 flex items-center">
+                                <div class="w-full border-t border-gray-300"></div>
+                            </div>
+                            <div class="relative flex justify-center text-sm">
+                                <span class="px-2 bg-white text-gray-500">或</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Email Login Form -->
                     <form id="loginForm" class="space-y-4">
                         <div>
                             <label for="emailInput" class="block text-sm font-medium text-gray-700 mb-2">邮箱地址</label>
