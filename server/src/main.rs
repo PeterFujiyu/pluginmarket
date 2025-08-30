@@ -25,7 +25,7 @@ use tower_http::{
 use tracing::info;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
-use handlers::{auth, plugins, search, health, admin};
+use handlers::{auth, plugins, search, health, admin, binding};
 use services::AppState;
 use utils::config::Config;
 
@@ -122,6 +122,16 @@ fn create_app(state: AppState) -> Router {
         .route("/auth/metamask/challenge", post(auth::metamask_challenge))
         .route("/auth/metamask/verify", post(auth::metamask_verify))
         .route("/auth/web3/config", get(auth::web3_config))
+        
+        // Account binding routes
+        .route("/auth/bindings", get(binding::get_user_bindings))
+        .route("/auth/bindings/email-to-wallet", post(binding::bind_email_to_wallet))
+        .route("/auth/bindings/wallet-to-email", post(binding::bind_wallet_to_email))
+        .route("/auth/bindings/send-email-code", post(binding::send_email_verification_for_binding))
+        .route("/auth/bindings/wallet-challenge", post(binding::generate_wallet_binding_challenge))
+        .route("/auth/bindings/verify-email", post(binding::verify_email_binding))
+        .route("/auth/bindings/verify-wallet", post(binding::verify_wallet_binding))
+        .route("/auth/bindings/unbind", post(binding::unbind_account))
         
         // Plugin routes
         .route("/plugins", get(plugins::list_plugins))

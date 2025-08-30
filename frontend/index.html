@@ -1127,6 +1127,9 @@
                                 <i class="fas fa-upload"></i>
                                 <span>上传插件</span>
                             </button>
+                            <button id="accountBindingBtn" class="text-gray-600 hover:text-claude-orange transition-colors">
+                                <i class="fas fa-link mr-1"></i>账户绑定
+                            </button>
                             <button id="logoutBtn" class="text-gray-600 hover:text-claude-orange transition-colors">退出</button>
                         </div>
                     </div>
@@ -1450,6 +1453,118 @@
                             </button>
                         </div>
                     </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Account Binding Management Modal -->
+    <div id="accountBindingModal" class="fixed inset-0 glass-backdrop hidden z-50">
+        <div class="flex items-center justify-center min-h-screen p-4">
+            <div class="glass-modal rounded-2xl max-w-lg w-full mx-auto modal-slide-in">
+                <div class="p-6">
+                    <!-- Header -->
+                    <div class="flex items-center justify-between mb-6">
+                        <h2 class="text-2xl font-bold text-claude-text">账户绑定管理</h2>
+                        <button id="closeAccountBindingModal" class="text-gray-500 hover:text-gray-700">
+                            <i class="fas fa-times text-xl"></i>
+                        </button>
+                    </div>
+                    
+                    <!-- Current Binding Status -->
+                    <div class="mb-6 space-y-4">
+                        <h3 class="text-lg font-semibold text-gray-700">当前绑定状态</h3>
+                        
+                        <!-- Email Status -->
+                        <div id="emailBindingStatus" class="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+                            <div class="flex items-center space-x-3">
+                                <div class="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
+                                    <i class="fas fa-envelope text-blue-600"></i>
+                                </div>
+                                <div>
+                                    <div class="font-medium text-gray-900">邮箱登录</div>
+                                    <div id="boundEmail" class="text-sm text-gray-500">未绑定</div>
+                                </div>
+                            </div>
+                            <div id="emailStatus" class="px-3 py-1 text-xs rounded-full bg-gray-200 text-gray-600">
+                                未绑定
+                            </div>
+                        </div>
+
+                        <!-- Wallet Status -->
+                        <div id="walletBindingStatus" class="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+                            <div class="flex items-center space-x-3">
+                                <div class="w-10 h-10 bg-orange-100 rounded-full flex items-center justify-center">
+                                    <i class="fab fa-ethereum text-orange-600"></i>
+                                </div>
+                                <div>
+                                    <div class="font-medium text-gray-900">钱包登录</div>
+                                    <div id="boundWallet" class="text-sm text-gray-500 font-mono">未绑定</div>
+                                </div>
+                            </div>
+                            <div id="walletStatus" class="px-3 py-1 text-xs rounded-full bg-gray-200 text-gray-600">
+                                未绑定
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Binding Actions -->
+                    <div class="space-y-4">
+                        <h3 class="text-lg font-semibold text-gray-700">绑定操作</h3>
+                        
+                        <!-- Bind Email Section -->
+                        <div id="bindEmailSection" class="hidden border-t border-gray-200 pt-4">
+                            <h4 class="font-medium text-gray-700 mb-3">绑定邮箱</h4>
+                            <form id="bindEmailForm" class="space-y-3">
+                                <input type="email" id="bindEmailInput" placeholder="请输入邮箱地址" 
+                                       class="glass-input w-full px-4 py-3 rounded-xl" required>
+                                <button type="button" id="sendEmailCodeBtn" 
+                                        class="w-full glass-button text-white px-4 py-3 rounded-xl">
+                                    发送验证码
+                                </button>
+                                <div id="emailCodeStep" class="hidden space-y-3">
+                                    <input type="text" id="emailCodeInput" placeholder="请输入6位验证码" 
+                                           class="glass-input w-full px-4 py-3 rounded-xl" maxlength="6">
+                                    <div id="emailCodeDisplay" class="hidden p-3 bg-orange-50 border border-orange-200 rounded-xl">
+                                        <p class="text-sm text-gray-600 mb-2">您的验证码是：</p>
+                                        <p id="displayedEmailCode" class="text-2xl font-mono font-bold text-claude-orange"></p>
+                                    </div>
+                                    <button type="submit" class="w-full glass-button text-white px-4 py-3 rounded-xl">
+                                        确认绑定邮箱
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+
+                        <!-- Bind Wallet Section -->
+                        <div id="bindWalletSection" class="hidden border-t border-gray-200 pt-4">
+                            <h4 class="font-medium text-gray-700 mb-3">绑定钱包</h4>
+                            <button id="bindWalletBtn" 
+                                    class="w-full metamask-button px-4 py-3 rounded-xl font-medium transition-colors flex items-center justify-center">
+                                <span class="metamask-icon">🦊</span>
+                                <span id="bindWalletBtnText">连接 MetaMask 钱包</span>
+                                <div id="bindWalletSpinner" class="hidden spinner inline-block ml-2"></div>
+                            </button>
+                        </div>
+
+                        <!-- Unbind Actions -->
+                        <div id="unbindActions" class="border-t border-gray-200 pt-4">
+                            <h4 class="font-medium text-gray-700 mb-3">解除绑定</h4>
+                            <div class="space-y-2">
+                                <button id="unbindEmailBtn" class="hidden w-full bg-red-50 text-red-700 border border-red-200 px-4 py-2 rounded-xl hover:bg-red-100 transition-colors">
+                                    解除邮箱绑定
+                                </button>
+                                <button id="unbindWalletBtn" class="hidden w-full bg-red-50 text-red-700 border border-red-200 px-4 py-2 rounded-xl hover:bg-red-100 transition-colors">
+                                    解除钱包绑定
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="mt-6 text-sm text-gray-500 bg-blue-50 p-3 rounded-lg">
+                        <i class="fas fa-info-circle mr-1"></i>
+                        <strong>提示：</strong>绑定后您可以使用任意一种方式登录同一个账户。为了安全，必须保留至少一种认证方式。
+                    </div>
                 </div>
             </div>
         </div>

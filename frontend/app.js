@@ -380,7 +380,7 @@ class PluginMarketplace {
         const email = emailInput.value.trim();
 
         if (!email) {
-            this.showError('请输入邮箱地址');
+            this.showError('请输入邮箱地址 / Please enter email address');
             return;
         }
 
@@ -641,6 +641,43 @@ class PluginMarketplace {
         document.getElementById('loginForm').addEventListener('submit', (e) => {
             e.preventDefault();
             this.verifyCodeAndLogin();
+        });
+
+        // Account binding events
+        document.getElementById('accountBindingBtn').addEventListener('click', () => {
+            this.showAccountBindingModal();
+        });
+
+        document.getElementById('closeAccountBindingModal').addEventListener('click', () => {
+            this.hideAccountBindingModal();
+        });
+
+        document.getElementById('sendEmailCodeBtn').addEventListener('click', () => {
+            this.sendEmailVerificationForBinding();
+        });
+
+        document.getElementById('bindEmailForm').addEventListener('submit', (e) => {
+            e.preventDefault();
+            this.bindEmail();
+        });
+
+        document.getElementById('bindWalletBtn').addEventListener('click', () => {
+            this.bindWallet();
+        });
+
+        document.getElementById('unbindEmailBtn').addEventListener('click', () => {
+            this.unbindAccount('email');
+        });
+
+        document.getElementById('unbindWalletBtn').addEventListener('click', () => {
+            this.unbindAccount('wallet');
+        });
+
+        // Close binding modal when clicking outside
+        document.getElementById('accountBindingModal').addEventListener('click', (e) => {
+            if (e.target.id === 'accountBindingModal') {
+                this.hideAccountBindingModal();
+            }
         });
     }
 
@@ -1635,7 +1672,7 @@ class PluginMarketplace {
 
     async connectMetaMask() {
         if (!this.metamaskAvailable) {
-            this.showError('请先安装 MetaMask 钱包插件');
+            this.showError('请先安装 MetaMask 钱包插件 / Please install MetaMask wallet extension first');
             return;
         }
 
@@ -1764,6 +1801,320 @@ class PluginMarketplace {
             return this.currentUser.ethereum_address;
         }
         return null;
+    }
+
+    // Account Binding Methods
+    async showAccountBindingModal() {
+        if (!this.authToken) {
+            this.showError('请先登录后再管理账户绑定 / Please login first to manage account binding');
+            return;
+        }
+
+        const modal = document.getElementById('accountBindingModal');
+        modal.classList.remove('hidden');
+        
+        // Load and display current binding status
+        await this.loadUserBindings();
+    }
+
+    hideAccountBindingModal() {
+        const modal = document.getElementById('accountBindingModal');
+        modal.classList.add('hidden');
+        
+        // Reset form states
+        this.resetBindingForms();
+    }
+
+    async loadUserBindings() {
+        try {
+            const response = await fetch(`${this.baseURL}/auth/bindings`, {
+                headers: {
+                    'Authorization': `Bearer ${this.authToken}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+                if (data.success) {
+                    this.displayBindingStatus(data.data);
+                } else {
+                    throw new Error(data.message || 'Failed to load binding status');
+                }
+            } else {
+                throw new Error('Failed to fetch binding status');
+            }
+        } catch (error) {
+            console.error('Error loading user bindings:', error);
+            this.showError('无法加载绑定状态，请重试 / Failed to load binding status, please try again');
+        }
+    }
+
+    displayBindingStatus(bindings) {
+        const boundEmail = document.getElementById('boundEmail');
+        const emailStatus = document.getElementById('emailStatus');
+        const boundWallet = document.getElementById('boundWallet');
+        const walletStatus = document.getElementById('walletStatus');
+        
+        const bindEmailSection = document.getElementById('bindEmailSection');
+        const bindWalletSection = document.getElementById('bindWalletSection');
+        const unbindEmailBtn = document.getElementById('unbindEmailBtn');
+        const unbindWalletBtn = document.getElementById('unbindWalletBtn');
+
+        // Update email binding status
+        if (bindings.has_email_binding && bindings.email) {
+            boundEmail.textContent = bindings.email;
+            emailStatus.textContent = '已绑定';
+            emailStatus.className = 'px-3 py-1 text-xs rounded-full bg-green-100 text-green-700';
+            bindEmailSection.classList.add('hidden');
+            unbindEmailBtn.classList.remove('hidden');
+        } else {
+            boundEmail.textContent = '未绑定';
+            emailStatus.textContent = '未绑定';
+            emailStatus.className = 'px-3 py-1 text-xs rounded-full bg-gray-200 text-gray-600';
+            bindEmailSection.classList.remove('hidden');
+            unbindEmailBtn.classList.add('hidden');
+        }
+
+        // Update wallet binding status
+        if (bindings.has_wallet_binding && bindings.ethereum_address) {
+            boundWallet.textContent = `${bindings.ethereum_address.substring(0, 6)}...${bindings.ethereum_address.substring(38)}`;
+            walletStatus.textContent = '已绑定';
+            walletStatus.className = 'px-3 py-1 text-xs rounded-full bg-green-100 text-green-700';
+            bindWalletSection.classList.add('hidden');
+            unbindWalletBtn.classList.remove('hidden');
+        } else {
+            boundWallet.textContent = '未绑定';
+            walletStatus.textContent = '未绑定';
+            walletStatus.className = 'px-3 py-1 text-xs rounded-full bg-gray-200 text-gray-600';
+            bindWalletSection.classList.remove('hidden');
+            unbindWalletBtn.classList.add('hidden');
+        }
+    }
+
+    async sendEmailVerificationForBinding() {
+        const email = document.getElementById('bindEmailInput').value;
+        if (!email) {
+            this.showError('请输入邮箱地址 / Please enter email address');
+            return;
+        }
+
+        const btn = document.getElementById('sendEmailCodeBtn');
+        btn.disabled = true;
+        btn.textContent = '发送中...';
+
+        try {
+            const response = await fetch(`${this.baseURL}/auth/bindings/send-email-code`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${this.authToken}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ email })
+            });
+
+            const data = await response.json();
+            
+            if (response.ok && data.success) {
+                // Show verification code step
+                const emailCodeStep = document.getElementById('emailCodeStep');
+                emailCodeStep.classList.remove('hidden');
+                
+                // If code is provided (SMTP not configured), display it
+                if (data.data.code) {
+                    const emailCodeDisplay = document.getElementById('emailCodeDisplay');
+                    const displayedEmailCode = document.getElementById('displayedEmailCode');
+                    emailCodeDisplay.classList.remove('hidden');
+                    displayedEmailCode.textContent = data.data.code;
+                }
+                
+                this.showSuccess(data.data.message || '验证码已发送');
+                btn.textContent = '重新发送';
+            } else {
+                throw new Error(data.message || 'Failed to send verification code');
+            }
+        } catch (error) {
+            console.error('Error sending email verification:', error);
+            this.showError('发送验证码失败，请重试');
+            btn.textContent = '发送验证码';
+        } finally {
+            btn.disabled = false;
+        }
+    }
+
+    async bindEmail() {
+        const email = document.getElementById('bindEmailInput').value;
+        const code = document.getElementById('emailCodeInput').value;
+
+        if (!email || !code) {
+            this.showError('请输入邮箱地址和验证码 / Please enter email address and verification code');
+            return;
+        }
+
+        try {
+            const response = await fetch(`${this.baseURL}/auth/bindings/verify-email`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${this.authToken}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ email, code })
+            });
+
+            const data = await response.json();
+            
+            if (response.ok && data.success) {
+                this.showSuccess('邮箱绑定成功！/ Email binding successful!');
+                await this.loadUserBindings(); // Refresh binding status
+                this.resetBindingForms();
+            } else {
+                throw new Error(data.message || 'Email binding failed');
+            }
+        } catch (error) {
+            console.error('Error binding email:', error);
+            this.showError(error.message || '邮箱绑定失败，请重试');
+        }
+    }
+
+    async bindWallet() {
+        if (!this.metamaskAvailable) {
+            this.showError('请先安装 MetaMask 钱包插件 / Please install MetaMask wallet extension first');
+            return;
+        }
+
+        const btn = document.getElementById('bindWalletBtn');
+        const btnText = document.getElementById('bindWalletBtnText');
+        const spinner = document.getElementById('bindWalletSpinner');
+
+        try {
+            // Update button state
+            btn.disabled = true;
+            btn.classList.add('metamask-connecting');
+            btnText.textContent = '连接钱包中...';
+            spinner.classList.remove('hidden');
+
+            // Connect to MetaMask
+            await window.ethereum.request({ method: 'eth_requestAccounts' });
+            const accounts = await window.ethereum.request({ method: 'eth_accounts' });
+            
+            if (accounts.length === 0) {
+                throw new Error('未连接到任何账户');
+            }
+
+            const address = accounts[0];
+            btnText.textContent = '生成签名挑战...';
+
+            // Get challenge from backend
+            const challengeResponse = await fetch(`${this.baseURL}/auth/bindings/wallet-challenge`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${this.authToken}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ address })
+            });
+
+            const challengeData = await challengeResponse.json();
+            if (!challengeResponse.ok || !challengeData.success) {
+                throw new Error(challengeData.message || 'Failed to get challenge');
+            }
+
+            const { message, nonce } = challengeData.data;
+            btnText.textContent = '请在钱包中签名...';
+
+            // Request signature
+            const signer = this.web3Provider.getSigner();
+            const signature = await signer.signMessage(message);
+
+            btnText.textContent = '验证签名中...';
+
+            // Verify signature with backend
+            const verifyResponse = await fetch(`${this.baseURL}/auth/bindings/verify-wallet`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${this.authToken}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    address,
+                    signature,
+                    message,
+                    nonce
+                })
+            });
+
+            const verifyData = await verifyResponse.json();
+            if (!verifyResponse.ok || !verifyData.success) {
+                throw new Error(verifyData.message || 'Wallet binding verification failed');
+            }
+
+            // Success
+            btnText.textContent = '绑定成功！';
+            this.showSuccess('钱包绑定成功！/ Wallet binding successful!');
+            await this.loadUserBindings(); // Refresh binding status
+
+        } catch (error) {
+            console.error('Wallet binding failed:', error);
+            
+            let errorMessage = error.message;
+            if (error.code === 4001) {
+                errorMessage = '用户拒绝了连接或签名请求';
+            } else if (error.code === -32602) {
+                errorMessage = 'MetaMask 请求参数无效';
+            }
+            
+            this.showError(`钱包绑定失败: ${errorMessage}`);
+            
+        } finally {
+            // Reset button state
+            setTimeout(() => {
+                btn.disabled = false;
+                btn.classList.remove('metamask-connecting');
+                btnText.textContent = '连接 MetaMask 钱包';
+                spinner.classList.add('hidden');
+            }, 2000);
+        }
+    }
+
+    async unbindAccount(type) {
+        const confirmMessage = type === 'email' ? '确定要解除邮箱绑定吗？' : '确定要解除钱包绑定吗？';
+        
+        if (!confirm(confirmMessage)) {
+            return;
+        }
+
+        try {
+            const response = await fetch(`${this.baseURL}/auth/bindings/unbind`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${this.authToken}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ binding_type: type })
+            });
+
+            const data = await response.json();
+            
+            if (response.ok && data.success) {
+                this.showSuccess(data.data.message || '解除绑定成功');
+                await this.loadUserBindings(); // Refresh binding status
+            } else {
+                throw new Error(data.message || 'Unbinding failed');
+            }
+        } catch (error) {
+            console.error('Error unbinding account:', error);
+            this.showError(error.message || '解除绑定失败，请重试');
+        }
+    }
+
+    resetBindingForms() {
+        // Reset email binding form
+        document.getElementById('bindEmailInput').value = '';
+        document.getElementById('emailCodeInput').value = '';
+        document.getElementById('emailCodeStep').classList.add('hidden');
+        document.getElementById('emailCodeDisplay').classList.add('hidden');
+        document.getElementById('sendEmailCodeBtn').textContent = '发送验证码';
+        document.getElementById('sendEmailCodeBtn').disabled = false;
     }
 }
 

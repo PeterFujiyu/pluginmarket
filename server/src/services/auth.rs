@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use tokio::sync::RwLock;
 
 use crate::{
-    models::{LoginResponse, TokenClaims, User, UserResponse, VerificationCode, AuthResponse, UserInfo, Web3Challenge},
+    models::{LoginResponse, TokenClaims, User, UserResponse, VerificationCode, AuthResponse, UserInfo, Web3Challenge, UserAccountBinding, UserBindingsResponse},
     utils::config::Config,
 };
 
@@ -227,8 +227,11 @@ impl AuthService {
             codes.remove(&email);
         }
 
-        // Find or create user
-        let user = self.find_or_create_user_by_email(&email).await?;
+        // Find or create user, checking for bindings
+        let user = match self.find_user_by_binding(Some(&email), None).await? {
+            Some(bound_user) => bound_user,
+            None => self.find_or_create_user_by_email(&email).await?,
+        };
 
         // Generate JWT token
         let (access_token, _) = self.generate_tokens(&user)
@@ -430,8 +433,11 @@ impl AuthService {
             challenges.remove(&address);
         }
 
-        // Find or create user by Ethereum address
-        let user = self.find_or_create_user_by_eth_address(&address).await?;
+        // Find or create user by Ethereum address, checking for bindings
+        let user = match self.find_user_by_binding(None, Some(&address)).await? {
+            Some(bound_user) => bound_user,
+            None => self.find_or_create_user_by_eth_address(&address).await?,
+        };
 
         // Generate JWT token
         let (access_token, _) = self.generate_tokens(&user)
@@ -456,7 +462,7 @@ impl AuthService {
         })
     }
 
-    fn verify_eth_signature(&self, address: &str, message: &str, signature_hex: &str) -> anyhow::Result<()> {
+    pub fn verify_eth_signature(&self, address: &str, message: &str, signature_hex: &str) -> anyhow::Result<()> {
         use ethers::core::utils::keccak256;
         use ethers::utils::hex;
         use k256::ecdsa::{RecoveryId, Signature, VerifyingKey};
@@ -635,5 +641,309 @@ impl AuthService {
         .await?;
 
         Ok(())
+    }
+
+    // Account binding methods
+    pub async fn bind_email_to_wallet(&self, user_id: i32, ethereum_address: &str, verification_code: &str) -> anyhow::Result<UserAccountBinding> {
+        // Special case: if verification_code is "crypto_verified", skip challenge validation
+        if verification_code != "crypto_verified" {
+            // Validate verification code using stored challenges
+            let stored_challenge = {
+                let challenges = self.web3_challenges.read().await;
+                challenges.get(&ethereum_address.to_lowercase()).cloned()
+            };
+
+            if stored_challenge.is_none() {
+                return Err(anyhow::anyhow!("未找到钱包地址的有效挑战 / No active challenge found for wallet address"));
+            }
+        }
+
+        // Get user information
+        let user = sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = $1")
+            .bind(user_id)
+            .fetch_one(&self.db_pool)
+            .await?;
+
+        // Check if this wallet is already bound to another user
+        let existing_wallet_user = sqlx::query_scalar::<_, Option<i32>>(
+            "SELECT id FROM users WHERE ethereum_address = $1 AND id != $2"
+        )
+        .bind(ethereum_address)
+        .bind(user_id)
+        .fetch_optional(&self.db_pool)
+        .await?;
+
+        if existing_wallet_user.is_some() {
+            return Err(anyhow::anyhow!("此钱包地址已绑定到其他账户 / This wallet address is already bound to another account"));
+        }
+
+        // Check if user already has a wallet binding
+        let existing_binding = sqlx::query_scalar::<_, Option<i32>>(
+            "SELECT id FROM user_account_bindings WHERE primary_user_id = $1 AND binding_type = 'email_to_wallet' AND is_active = true"
+        )
+        .bind(user_id)
+        .fetch_optional(&self.db_pool)
+        .await?;
+
+        if existing_binding.is_some() {
+            return Err(anyhow::anyhow!("用户已有钱包绑定 / User already has a wallet binding"));
+        }
+
+        // Update user's ethereum_address
+        sqlx::query("UPDATE users SET ethereum_address = $1, updated_at = NOW() WHERE id = $2")
+            .bind(ethereum_address)
+            .bind(user_id)
+            .execute(&self.db_pool)
+            .await?;
+
+        // Create binding record
+        let binding = sqlx::query_as::<_, UserAccountBinding>(
+            r#"
+            INSERT INTO user_account_bindings (primary_user_id, binding_type, ethereum_address, is_active)
+            VALUES ($1, 'email_to_wallet', $2, true)
+            RETURNING *
+            "#
+        )
+        .bind(user_id)
+        .bind(ethereum_address)
+        .fetch_one(&self.db_pool)
+        .await?;
+
+        // Clean up the challenge (only if it wasn't crypto_verified)
+        if verification_code != "crypto_verified" {
+            let mut challenges = self.web3_challenges.write().await;
+            challenges.remove(&ethereum_address.to_lowercase());
+        }
+
+        tracing::info!("Successfully bound wallet {} to user {}", ethereum_address, user_id);
+        Ok(binding)
+    }
+
+    pub async fn bind_wallet_to_email(&self, user_id: i32, email: &str, verification_code: &str) -> anyhow::Result<UserAccountBinding> {
+        // Validate email verification code
+        {
+            let codes = self.verification_codes.read().await;
+            if let Some(stored_code) = codes.get(email) {
+                if stored_code.expires_at < Utc::now() {
+                    return Err(anyhow::anyhow!("验证码已过期"));
+                }
+                if stored_code.code != verification_code {
+                    return Err(anyhow::anyhow!("验证码错误"));
+                }
+            } else {
+                return Err(anyhow::anyhow!("验证码不存在或已过期"));
+            }
+        }
+
+        // Get wallet user information
+        let wallet_user = sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = $1")
+            .bind(user_id)
+            .fetch_one(&self.db_pool)
+            .await?;
+
+        // Check if this email is already bound to another user
+        let existing_email_user = sqlx::query_scalar::<_, Option<i32>>(
+            "SELECT id FROM users WHERE email = $1 AND id != $2"
+        )
+        .bind(email)
+        .bind(user_id)
+        .fetch_optional(&self.db_pool)
+        .await?;
+
+        if existing_email_user.is_some() {
+            return Err(anyhow::anyhow!("此邮箱地址已绑定到其他账户 / This email address is already bound to another account"));
+        }
+
+        // Check if user already has an email binding
+        let existing_binding = sqlx::query_scalar::<_, Option<i32>>(
+            "SELECT id FROM user_account_bindings WHERE primary_user_id = $1 AND binding_type = 'wallet_to_email' AND is_active = true"
+        )
+        .bind(user_id)
+        .fetch_optional(&self.db_pool)
+        .await?;
+
+        if existing_binding.is_some() {
+            return Err(anyhow::anyhow!("用户已有邮箱绑定 / User already has an email binding"));
+        }
+
+        // Update user's email
+        sqlx::query("UPDATE users SET email = $1, updated_at = NOW() WHERE id = $2")
+            .bind(email)
+            .bind(user_id)
+            .execute(&self.db_pool)
+            .await?;
+
+        // Create binding record
+        let binding = sqlx::query_as::<_, UserAccountBinding>(
+            r#"
+            INSERT INTO user_account_bindings (primary_user_id, binding_type, email, is_active)
+            VALUES ($1, 'wallet_to_email', $2, true)
+            RETURNING *
+            "#
+        )
+        .bind(user_id)
+        .bind(email)
+        .fetch_one(&self.db_pool)
+        .await?;
+
+        // Remove used verification code
+        {
+            let mut codes = self.verification_codes.write().await;
+            codes.remove(email);
+        }
+
+        tracing::info!("Successfully bound email {} to user {}", email, user_id);
+        Ok(binding)
+    }
+
+    pub async fn get_user_bindings(&self, user_id: i32) -> anyhow::Result<UserBindingsResponse> {
+        let user = sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = $1")
+            .bind(user_id)
+            .fetch_one(&self.db_pool)
+            .await?;
+
+        let bindings = sqlx::query_as::<_, UserAccountBinding>(
+            "SELECT * FROM user_account_bindings WHERE primary_user_id = $1 AND is_active = true ORDER BY created_at DESC"
+        )
+        .bind(user_id)
+        .fetch_all(&self.db_pool)
+        .await?;
+
+        let has_email_binding = !user.email.is_empty();
+        let has_wallet_binding = user.ethereum_address.is_some() && !user.ethereum_address.as_ref().unwrap().is_empty();
+
+        Ok(UserBindingsResponse {
+            user_id,
+            email: if has_email_binding { Some(user.email) } else { None },
+            ethereum_address: user.ethereum_address,
+            has_email_binding,
+            has_wallet_binding,
+            bindings,
+        })
+    }
+
+    pub async fn unbind_account(&self, user_id: i32, binding_type: &str) -> anyhow::Result<()> {
+        let user = sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = $1")
+            .bind(user_id)
+            .fetch_one(&self.db_pool)
+            .await?;
+
+        match binding_type {
+            "email" => {
+                // Check if user has email binding
+                let has_email = !user.email.is_empty();
+                if !has_email {
+                    return Err(anyhow::anyhow!("用户没有邮箱绑定可以移除 / User has no email binding to remove"));
+                }
+
+                // Check if this is the only authentication method
+                if user.ethereum_address.is_none() || user.ethereum_address.as_ref().unwrap().is_empty() {
+                    return Err(anyhow::anyhow!("无法移除邮箱绑定：这是唯一的认证方式 / Cannot remove email binding: it's the only authentication method"));
+                }
+
+                // Remove email from user and deactivate binding
+                sqlx::query("UPDATE users SET email = '', updated_at = NOW() WHERE id = $1")
+                    .bind(user_id)
+                    .execute(&self.db_pool)
+                    .await?;
+
+                sqlx::query("UPDATE user_account_bindings SET is_active = false WHERE primary_user_id = $1 AND binding_type IN ('email_to_wallet', 'wallet_to_email') AND email IS NOT NULL")
+                    .bind(user_id)
+                    .execute(&self.db_pool)
+                    .await?;
+
+                tracing::info!("Removed email binding for user {}", user_id);
+            }
+            "wallet" => {
+                // Check if user has wallet binding
+                let has_wallet = user.ethereum_address.is_some() && !user.ethereum_address.as_ref().unwrap().is_empty();
+                if !has_wallet {
+                    return Err(anyhow::anyhow!("用户没有钱包绑定可以移除 / User has no wallet binding to remove"));
+                }
+
+                // Check if this is the only authentication method
+                if user.email.is_empty() {
+                    return Err(anyhow::anyhow!("无法移除钱包绑定：这是唯一的认证方式 / Cannot remove wallet binding: it's the only authentication method"));
+                }
+
+                // Remove ethereum_address from user and deactivate binding
+                sqlx::query("UPDATE users SET ethereum_address = NULL, updated_at = NOW() WHERE id = $1")
+                    .bind(user_id)
+                    .execute(&self.db_pool)
+                    .await?;
+
+                sqlx::query("UPDATE user_account_bindings SET is_active = false WHERE primary_user_id = $1 AND binding_type IN ('email_to_wallet', 'wallet_to_email') AND ethereum_address IS NOT NULL")
+                    .bind(user_id)
+                    .execute(&self.db_pool)
+                    .await?;
+
+                tracing::info!("Removed wallet binding for user {}", user_id);
+            }
+            _ => return Err(anyhow::anyhow!("无效的绑定类型：必须是 'email' 或 'wallet' / Invalid binding type: must be 'email' or 'wallet'")),
+        }
+
+        Ok(())
+    }
+
+    pub async fn find_user_by_binding(&self, email: Option<&str>, ethereum_address: Option<&str>) -> anyhow::Result<Option<User>> {
+        if let Some(email) = email {
+            // First try to find user by email directly
+            if let Ok(user) = sqlx::query_as::<_, User>("SELECT * FROM users WHERE email = $1 AND is_active = true")
+                .bind(email)
+                .fetch_one(&self.db_pool)
+                .await
+            {
+                return Ok(Some(user));
+            }
+
+            // Then check bindings table
+            if let Ok(binding) = sqlx::query_as::<_, UserAccountBinding>(
+                "SELECT * FROM user_account_bindings WHERE email = $1 AND is_active = true"
+            )
+            .bind(email)
+            .fetch_one(&self.db_pool)
+            .await
+            {
+                if let Ok(user) = sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = $1 AND is_active = true")
+                    .bind(binding.primary_user_id)
+                    .fetch_one(&self.db_pool)
+                    .await
+                {
+                    return Ok(Some(user));
+                }
+            }
+        }
+
+        if let Some(address) = ethereum_address {
+            let address = address.to_lowercase();
+            
+            // First try to find user by ethereum_address directly
+            if let Ok(user) = sqlx::query_as::<_, User>("SELECT * FROM users WHERE ethereum_address = $1 AND is_active = true")
+                .bind(&address)
+                .fetch_one(&self.db_pool)
+                .await
+            {
+                return Ok(Some(user));
+            }
+
+            // Then check bindings table
+            if let Ok(binding) = sqlx::query_as::<_, UserAccountBinding>(
+                "SELECT * FROM user_account_bindings WHERE ethereum_address = $1 AND is_active = true"
+            )
+            .bind(&address)
+            .fetch_one(&self.db_pool)
+            .await
+            {
+                if let Ok(user) = sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = $1 AND is_active = true")
+                    .bind(binding.primary_user_id)
+                    .fetch_one(&self.db_pool)
+                    .await
+                {
+                    return Ok(Some(user));
+                }
+            }
+        }
+
+        Ok(None)
     }
 }
